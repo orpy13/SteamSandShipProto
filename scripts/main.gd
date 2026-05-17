@@ -7,7 +7,6 @@ extends Node
 ## hands the HUD a reference to the Ship for its speed display.
 ##
 
-@onready var _ui_layer: CanvasLayer = $UILayer
 @onready var _lobby: Control = $UILayer/Lobby
 @onready var _hud: Control = $UILayer/HUD
 @onready var _ship: CharacterBody3D = $Ship

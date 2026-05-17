@@ -427,8 +427,8 @@ func _get_system_positions() -> Dictionary:
 	positions["control"] = bridge.position if bridge != null \
 			else _SYSTEM_POSITION_FALLBACKS["control"]
 
-	var cargo := get_node_or_null("CargoHold") as Node3D
-	positions["cargo"] = cargo.position if cargo != null \
+	var cargo_node := get_node_or_null("CargoHold") as Node3D
+	positions["cargo"] = cargo_node.position if cargo_node != null \
 			else _SYSTEM_POSITION_FALLBACKS["cargo"]
 
 	return positions

@@ -159,7 +159,7 @@ static func _stamp_owner(node: Node, root: Node) -> void:
 # (sculpt interiors; do not add/remove vertices). Rebuilds normals, tangents
 # and the trimesh collision. Mutates the body in place.
 static func lock_chunk_edges(body: Node3D, noise: FastNoiseLite, key: Vector2i,
-		chunk_size: float, subdivisions: int, height_scale: float) -> bool:
+		chunk_size: float, _subdivisions: int, height_scale: float) -> bool:
 	var mesh_inst: MeshInstance3D = body.get_node_or_null("Mesh") as MeshInstance3D
 	if mesh_inst == null or not (mesh_inst.mesh is ArrayMesh):
 		push_warning("ChunkGen.lock_chunk_edges: no grid Mesh found")

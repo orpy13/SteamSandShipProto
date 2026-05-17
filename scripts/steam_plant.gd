@@ -177,10 +177,10 @@ func _sync_if_changed(force: bool = false) -> void:
 ## Client-side state overwrite. Unreliable is fine — we'll get another update
 ## shortly and the simulation reads as smooth at this update cadence.
 @rpc("authority", "call_remote", "unreliable")
-func _receive_state(pressure: float, heat: float, coal: float, water: float, load: float) -> void:
+func _receive_state(pressure: float, heat: float, coal: float, water: float, load_value: float) -> void:
 	steam_pressure = pressure
 	fire_heat = heat
 	coal_in_firebox = coal
 	water_level = water
-	current_load = load
+	current_load = load_value
 	steam_changed.emit(steam_pressure, fire_heat, coal_in_firebox, water_level)
