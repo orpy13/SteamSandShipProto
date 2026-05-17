@@ -1,0 +1,86 @@
+[gd_scene format=3 uid="uid://ny0e77hitur6"]
+
+[ext_resource type="Script" uid="uid://dw03lowqysjij" path="res://scripts/interactables/deck_gun.gd" id="1"]
+
+[sub_resource type="SphereShape3D" id="InteractShape"]
+radius = 2.0
+
+[sub_resource type="StandardMaterial3D" id="MetalMat"]
+albedo_color = Color(0.35, 0.35, 0.4, 1)
+metallic = 0.5
+roughness = 0.7
+
+[sub_resource type="CylinderMesh" id="BaseMesh"]
+top_radius = 0.6
+bottom_radius = 0.7
+height = 0.4
+
+[sub_resource type="StandardMaterial3D" id="HousingMat"]
+albedo_color = Color(0.42, 0.36, 0.32, 1)
+roughness = 0.85
+
+[sub_resource type="BoxMesh" id="HousingMesh"]
+size = Vector3(1, 0.6, 1)
+
+[sub_resource type="StandardMaterial3D" id="BarrelMat"]
+albedo_color = Color(0.15, 0.15, 0.18, 1)
+metallic = 0.7
+roughness = 0.4
+
+[sub_resource type="BoxMesh" id="BarrelMesh"]
+size = Vector3(0.3, 0.3, 2.2)
+
+[sub_resource type="SceneReplicationConfig" id="ReplCfg"]
+properties/0/path = NodePath(".:traverse_yaw")
+properties/0/spawn = true
+properties/0/replication_mode = 1
+properties/1/path = NodePath(".:elevate_pitch")
+properties/1/spawn = true
+properties/1/replication_mode = 1
+properties/2/path = NodePath(".:ammo")
+properties/2/spawn = true
+properties/2/replication_mode = 1
+
+[node name="DeckGun" type="Area3D" unique_id=1975817389]
+collision_layer = 2
+collision_mask = 0
+script = ExtResource("1")
+prompt_text = "Press E to man the gun"
+
+[node name="InteractCollision" type="CollisionShape3D" parent="." unique_id=2125801072]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("InteractShape")
+
+[node name="BaseMesh" type="MeshInstance3D" parent="." unique_id=1923709312]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, 0)
+material_override = SubResource("MetalMat")
+mesh = SubResource("BaseMesh")
+
+[node name="TraverseMount" type="Node3D" parent="." unique_id=1044600398]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
+
+[node name="HousingMesh" type="MeshInstance3D" parent="TraverseMount" unique_id=931741044]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
+material_override = SubResource("HousingMat")
+mesh = SubResource("HousingMesh")
+
+[node name="ElevateBarrel" type="Node3D" parent="TraverseMount" unique_id=372726256]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 0.2)
+
+[node name="BarrelMesh" type="MeshInstance3D" parent="TraverseMount/ElevateBarrel" unique_id=1428178710]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1.1)
+material_override = SubResource("BarrelMat")
+mesh = SubResource("BarrelMesh")
+
+[node name="Muzzle" type="Marker3D" parent="TraverseMount/ElevateBarrel" unique_id=531076689]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 2.3)
+
+[node name="GunCamera" type="Camera3D" parent="TraverseMount/ElevateBarrel" unique_id=2023890256]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0.5289062, -0.7393211)
+fov = 70.0
+
+[node name="GunnerSeat" type="Marker3D" parent="." unique_id=1471055998]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, -0.9)
+
+[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="." unique_id=865188868]
+replication_config = SubResource("ReplCfg")

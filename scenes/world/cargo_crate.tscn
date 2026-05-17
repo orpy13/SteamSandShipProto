@@ -1,0 +1,22 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/cargo_crate.gd" id="1"]
+
+[sub_resource type="SphereShape3D" id="InteractShape"]
+radius = 0.9
+
+[sub_resource type="BoxMesh" id="CrateMesh"]
+size = Vector3(0.6, 0.5, 0.5)
+
+[node name="CargoCrate" type="Area3D"]
+collision_layer = 2
+collision_mask = 0
+script = ExtResource("1")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.25, 0)
+shape = SubResource("InteractShape")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.25, 0)
+mesh = SubResource("CrateMesh")

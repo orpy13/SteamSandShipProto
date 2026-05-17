@@ -1,0 +1,25 @@
+[gd_scene format=3 uid="uid://c0vu8jwiif1lg"]
+
+[ext_resource type="Script" uid="uid://chgfi6h4qhmy" path="res://scripts/interactables/helm.gd" id="1"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_1"]
+
+[sub_resource type="StandardMaterial3D" id="Mat_1"]
+albedo_color = Color(0.45, 0.3, 0.15, 1)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_1"]
+height = 0.15
+
+[node name="Helm" type="Area3D" unique_id=781676897]
+collision_layer = 2
+script = ExtResource("1")
+prompt_text = "Press E to take the helm"
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1986484732]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5499917, 0)
+shape = SubResource("SphereShape3D_1")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1307014080]
+transform = Transform3D(1, 0, 0, 0, 0, 1, 0, -1, 0, 0, 0.5, 0)
+material_override = SubResource("Mat_1")
+mesh = SubResource("CylinderMesh_1")

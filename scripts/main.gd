@@ -1,0 +1,40 @@
+extends Node
+##
+## MAIN — the entry-point scene controller.
+##
+## Owns the top-level wiring: shows the Lobby until a session is established,
+## then swaps to the HUD. Listens to NetworkManager for session events and
+## hands the HUD a reference to the Ship for its speed display.
+##
+
+@onready var _ui_layer: CanvasLayer = $UILayer
+@onready var _lobby: Control = $UILayer/Lobby
+@onready var _hud: Control = $UILayer/HUD
+@onready var _ship: CharacterBody3D = $Ship
+
+
+## Wire up NetworkManager → UI transitions and give the HUD its ship reference.
+func _ready() -> void:
+	_hud.visible = false
+	_lobby.visible = true
+	NetworkManager.server_started.connect(_on_session_started)
+	NetworkManager.connection_succeeded.connect(_on_session_started)
+	NetworkManager.connection_failed.connect(_on_connection_failed)
+	if _hud.has_method("bind_ship"):
+		_hud.bind_ship(_ship)
+
+
+## Hide the lobby and show the HUD once we have a live session — host start
+## and successful client connect both land here.
+func _on_session_started() -> void:
+	_lobby.visible = false
+	_hud.visible = true
+	GameState.set_phase("playing")
+
+
+## Bring the lobby back with an error message if the connection drops.
+func _on_connection_failed(reason: String) -> void:
+	_lobby.visible = true
+	_hud.visible = false
+	if _lobby.has_method("set_status"):
+		_lobby.set_status(reason)

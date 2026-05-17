@@ -1,0 +1,69 @@
+[gd_scene format=3 uid="uid://bkwwatpwps570"]
+
+[ext_resource type="Script" uid="uid://bmc5fv4o76hop" path="res://scripts/interactables/water_tower.gd" id="1"]
+
+[sub_resource type="CylinderShape3D" id="FillAreaShape"]
+height = 8.0
+radius = 9.0
+
+[sub_resource type="StandardMaterial3D" id="TankMat"]
+albedo_color = Color(0.42, 0.55, 0.62, 1)
+roughness = 0.75
+
+[sub_resource type="CylinderMesh" id="TankMesh"]
+top_radius = 2.0
+bottom_radius = 2.0
+height = 2.2
+
+[sub_resource type="StandardMaterial3D" id="LegMat"]
+albedo_color = Color(0.28, 0.24, 0.18, 1)
+roughness = 0.9
+
+[sub_resource type="CylinderMesh" id="LegMesh"]
+top_radius = 0.12
+bottom_radius = 0.12
+height = 4.6
+
+[sub_resource type="CylinderShape3D" id="CylinderShape3D_sxuxl"]
+height = 10.346191
+radius = 2.352539
+
+[node name="WaterTower" type="Area3D" unique_id=700478591]
+collision_layer = 2
+script = ExtResource("1")
+prompt_text = "Press E to fill boiler water"
+
+[node name="FillArea" type="CollisionShape3D" parent="." unique_id=241456801]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4, 0)
+shape = SubResource("FillAreaShape")
+
+[node name="Tank" type="MeshInstance3D" parent="." unique_id=1861534522]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 8.735945, 0)
+material_override = SubResource("TankMat")
+mesh = SubResource("TankMesh")
+
+[node name="LegA" type="MeshInstance3D" parent="." unique_id=764244182]
+transform = Transform3D(1, 0, 0, 0, 1.7743542, 0, 0, 0, 1, -1.4, 3.6295617, -1.4)
+material_override = SubResource("LegMat")
+mesh = SubResource("LegMesh")
+
+[node name="LegB" type="MeshInstance3D" parent="." unique_id=1740024134]
+transform = Transform3D(1, 0, 0, 0, 1.7743542, 0, 0, 0, 1, 1.4, 3.6295617, -1.4)
+material_override = SubResource("LegMat")
+mesh = SubResource("LegMesh")
+
+[node name="LegC" type="MeshInstance3D" parent="." unique_id=1010451062]
+transform = Transform3D(1, 0, 0, 0, 1.7743542, 0, 0, 0, 1, -1.4, 3.6295617, 1.4)
+material_override = SubResource("LegMat")
+mesh = SubResource("LegMesh")
+
+[node name="LegD" type="MeshInstance3D" parent="." unique_id=922430166]
+transform = Transform3D(1, 0, 0, 0, 1.7743542, 0, 0, 0, 1, 1.4, 3.6295617, 1.4)
+material_override = SubResource("LegMat")
+mesh = SubResource("LegMesh")
+
+[node name="SolidCollision" type="StaticBody3D" parent="." unique_id=1951908296]
+
+[node name="TowerCollisionShape" type="CollisionShape3D" parent="SolidCollision" unique_id=1478025886]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.769662, 0)
+shape = SubResource("CylinderShape3D_sxuxl")

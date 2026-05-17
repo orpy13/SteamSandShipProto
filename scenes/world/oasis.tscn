@@ -1,0 +1,40 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/oasis.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/interactables/oasis_market.tscn" id="2"]
+
+[sub_resource type="BoxMesh" id="HutMesh"]
+size = Vector3(2.5, 2.5, 2.5)
+
+[sub_resource type="StandardMaterial3D" id="HutMat"]
+albedo_color = Color(0.65, 0.55, 0.4, 1)
+roughness = 0.95
+
+[sub_resource type="PrismMesh" id="RoofMesh"]
+size = Vector3(2.8, 1.0, 2.8)
+
+[node name="Oasis" type="Node3D"]
+script = ExtResource("1")
+
+[node name="HutLeft" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 1.25, -3)
+material_override = SubResource("HutMat")
+mesh = SubResource("HutMesh")
+
+[node name="HutLeftRoof" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 3.0, -3)
+material_override = SubResource("HutMat")
+mesh = SubResource("RoofMesh")
+
+[node name="HutRight" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 1.25, -3)
+material_override = SubResource("HutMat")
+mesh = SubResource("HutMesh")
+
+[node name="HutRightRoof" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 3.0, -3)
+material_override = SubResource("HutMat")
+mesh = SubResource("RoofMesh")
+
+[node name="Market" parent="." instance=ExtResource("2")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)

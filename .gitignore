@@ -1,0 +1,11 @@
+# Godot 4+ import cache / generated
+.godot/
+
+# Mono / .NET (unused but safe)
+.mono/
+data_*/
+
+# OS / editor cruft
+Thumbs.db
+desktop.ini
+.DS_Store

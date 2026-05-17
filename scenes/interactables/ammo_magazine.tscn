@@ -1,0 +1,41 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/interactables/ammo_magazine.gd" id="1"]
+
+[sub_resource type="BoxShape3D" id="MagShape"]
+size = Vector3(1.0, 0.6, 0.7)
+
+[sub_resource type="BoxMesh" id="CrateMesh"]
+size = Vector3(1.0, 0.6, 0.7)
+
+[sub_resource type="StandardMaterial3D" id="CrateMat"]
+albedo_color = Color(0.35, 0.22, 0.12, 1)
+roughness = 0.95
+
+[sub_resource type="StandardMaterial3D" id="BrassMat"]
+albedo_color = Color(0.85, 0.65, 0.25, 1)
+metallic = 0.6
+roughness = 0.35
+
+[sub_resource type="BoxMesh" id="ClipMesh"]
+size = Vector3(0.6, 0.1, 0.3)
+
+[node name="AmmoMagazine" type="Area3D"]
+collision_layer = 2
+collision_mask = 0
+script = ExtResource("1")
+prompt_text = "Press E to take ammo clip"
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
+shape = SubResource("MagShape")
+
+[node name="CrateMesh" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
+material_override = SubResource("CrateMat")
+mesh = SubResource("CrateMesh")
+
+[node name="ClipMesh" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.65, 0)
+material_override = SubResource("BrassMat")
+mesh = SubResource("ClipMesh")

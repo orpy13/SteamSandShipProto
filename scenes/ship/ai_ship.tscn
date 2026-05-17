@@ -1,0 +1,123 @@
+[gd_scene load_steps=13 format=3]
+
+[ext_resource type="Script" path="res://scripts/ai_ship_controller.gd" id="1"]
+
+[sub_resource type="BoxShape3D" id="HullShape"]
+size = Vector3(12, 3, 36)
+
+[sub_resource type="BoxMesh" id="HullMesh"]
+size = Vector3(12, 3, 36)
+
+[sub_resource type="StandardMaterial3D" id="HullMat"]
+albedo_color = Color(0.12, 0.1, 0.09, 1)
+roughness = 0.9
+
+[sub_resource type="BoxMesh" id="DeckMesh"]
+size = Vector3(12, 0.1, 18)
+
+[sub_resource type="StandardMaterial3D" id="DeckMat"]
+albedo_color = Color(0.35, 0.2, 0.12, 1)
+roughness = 1.0
+
+[sub_resource type="BoxShape3D" id="BridgeShape"]
+size = Vector3(3, 4, 5)
+
+[sub_resource type="BoxMesh" id="BridgeMesh"]
+size = Vector3(3, 4, 5)
+
+[sub_resource type="StandardMaterial3D" id="BridgeMat"]
+albedo_color = Color(0.45, 0.18, 0.12, 1)
+roughness = 0.9
+
+[sub_resource type="CylinderShape3D" id="WheelShape"]
+height = 1.2
+radius = 3.0
+
+[sub_resource type="CylinderMesh" id="WheelMesh"]
+top_radius = 3.0
+bottom_radius = 3.0
+height = 1.2
+
+[sub_resource type="SceneReplicationConfig" id="ReplCfg"]
+properties/0/path = NodePath(".:world_offset")
+properties/0/spawn = true
+properties/0/replication_mode = 1
+properties/1/path = NodePath(".:virtual_yaw")
+properties/1/spawn = true
+properties/1/replication_mode = 1
+properties/2/path = NodePath(".:current_speed")
+properties/2/spawn = true
+properties/2/replication_mode = 1
+properties/3/path = NodePath(".:state")
+properties/3/spawn = true
+properties/3/replication_mode = 1
+properties/4/path = NodePath(".:hit_count")
+properties/4/spawn = true
+properties/4/replication_mode = 1
+
+[node name="AIShip" type="Node3D"]
+script = ExtResource("1")
+
+[node name="HullBody" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
+
+[node name="HullCollision" type="CollisionShape3D" parent="HullBody"]
+shape = SubResource("HullShape")
+
+[node name="HullMesh" type="MeshInstance3D" parent="HullBody"]
+material_override = SubResource("HullMat")
+mesh = SubResource("HullMesh")
+
+[node name="DeckMesh" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.1, -8)
+material_override = SubResource("DeckMat")
+mesh = SubResource("DeckMesh")
+
+[node name="BridgeHouse" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5.2, -12)
+
+[node name="BridgeCollision" type="CollisionShape3D" parent="BridgeHouse"]
+shape = SubResource("BridgeShape")
+
+[node name="BridgeMesh" type="MeshInstance3D" parent="BridgeHouse"]
+material_override = SubResource("BridgeMat")
+mesh = SubResource("BridgeMesh")
+
+[node name="WheelFL" type="StaticBody3D" parent="."]
+transform = Transform3D(-4.371139e-08, -1, 0, 1, -4.371139e-08, 0, 0, 0, 1, -7.2, 0, 14)
+
+[node name="WheelCollision" type="CollisionShape3D" parent="WheelFL"]
+shape = SubResource("WheelShape")
+
+[node name="WheelMesh" type="MeshInstance3D" parent="WheelFL"]
+mesh = SubResource("WheelMesh")
+
+[node name="WheelFR" type="StaticBody3D" parent="."]
+transform = Transform3D(-4.371139e-08, -1, 0, 1, -4.371139e-08, 0, 0, 0, 1, 7.2, 0, 14)
+
+[node name="WheelCollision" type="CollisionShape3D" parent="WheelFR"]
+shape = SubResource("WheelShape")
+
+[node name="WheelMesh" type="MeshInstance3D" parent="WheelFR"]
+mesh = SubResource("WheelMesh")
+
+[node name="WheelBL" type="StaticBody3D" parent="."]
+transform = Transform3D(-4.371139e-08, -1, 0, 1, -4.371139e-08, 0, 0, 0, 1, -7.2, 0, -14)
+
+[node name="WheelCollision" type="CollisionShape3D" parent="WheelBL"]
+shape = SubResource("WheelShape")
+
+[node name="WheelMesh" type="MeshInstance3D" parent="WheelBL"]
+mesh = SubResource("WheelMesh")
+
+[node name="WheelBR" type="StaticBody3D" parent="."]
+transform = Transform3D(-4.371139e-08, -1, 0, 1, -4.371139e-08, 0, 0, 0, 1, 7.2, 0, -14)
+
+[node name="WheelCollision" type="CollisionShape3D" parent="WheelBR"]
+shape = SubResource("WheelShape")
+
+[node name="WheelMesh" type="MeshInstance3D" parent="WheelBR"]
+mesh = SubResource("WheelMesh")
+
+[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]
+replication_config = SubResource("ReplCfg")

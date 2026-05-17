@@ -1,0 +1,40 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/interactables/workshop.gd" id="1"]
+
+[sub_resource type="BoxShape3D" id="ShopShape"]
+size = Vector3(1.4, 0.9, 0.9)
+
+[sub_resource type="BoxMesh" id="ShopBenchMesh"]
+size = Vector3(1.4, 0.9, 0.9)
+
+[sub_resource type="StandardMaterial3D" id="ShopBenchMat"]
+albedo_color = Color(0.5, 0.32, 0.18, 1)
+roughness = 0.9
+
+[sub_resource type="BoxMesh" id="ToolboxMesh"]
+size = Vector3(0.5, 0.2, 0.3)
+
+[sub_resource type="StandardMaterial3D" id="ToolboxMat"]
+albedo_color = Color(0.35, 0.25, 0.1, 1)
+roughness = 0.85
+
+[node name="Workshop" type="Area3D"]
+collision_layer = 2
+collision_mask = 0
+script = ExtResource("1")
+prompt_text = "Press E at workshop"
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.45, 0)
+shape = SubResource("ShopShape")
+
+[node name="BenchMesh" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.45, 0)
+material_override = SubResource("ShopBenchMat")
+mesh = SubResource("ShopBenchMesh")
+
+[node name="ToolboxMesh" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 0)
+material_override = SubResource("ToolboxMat")
+mesh = SubResource("ToolboxMesh")
