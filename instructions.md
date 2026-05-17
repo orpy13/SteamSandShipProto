@@ -143,6 +143,32 @@ RPC-broadcast, only while the ship is ~stopped.
 
 ---
 
+## Vehicle dynamics
+
+On top of the kinematic drive, `ship_controller.gd` layers three systems
+that sell the mass of a large wheeled hull (all tunable via `@export`):
+
+- **Terrain-coupled longitudinal dynamics** — the slope under the bow
+  (`_slope_along_heading`) applies a gravity component to `current_speed`:
+  climbing bleeds speed and will roll the ship back if the boiler can't
+  beat the grade; descending gives a gravity assist (forward speed may
+  exceed the engine order up to `max_downhill_overspeed`). Steeper ground
+  adds rolling resistance. This closes a feedback loop with the steam
+  plant — a hill raises load, pressure sags, you slow. Runs on the helm
+  authority (mutates the replicated `current_speed`).
+- **Suspension + weight transfer** — body heave is a spring-damper
+  (`suspension_stiffness`/`damping`) instead of a flat lerp, with a
+  rate-limited downward chase (`max_suspension_drop`) so the hull floats
+  briefly off sharp crests. Longitudinal accel pitches the hull (squat /
+  brake-dive), lateral load rolls it. Runs on **every peer** — it only
+  needs the replicated speed/yaw, so no extra sync.
+- **Yaw inertia & turning radius** — the bow swings with momentum
+  (`yaw_inertia`), can't turn tighter than `min_turn_radius` (so high
+  speed forces a planned wide arc), and self-centres via `caster_strength`
+  when the wheel is released. A standstill hull can't pivot.
+
+---
+
 ## Steam plant
 
 `coal_in_firebox → fire_heat → steam_pressure → request_power → drive`.
@@ -412,6 +438,10 @@ Context-sensitive remapping (player_controller):
     fixed in the dunes — sail out one side and back in. HUD shows `SANDSTORM`.
 19. Storm raises bandit spawn rate; in a heavy whiteout the bandit holds fire.
     At night the Pole Star marks world-North as a bearing reference.
+20. Climbing a dune visibly bleeds speed (and rolls back if under-powered);
+    descending speeds up past the order. The hull bobs/settles over crests,
+    squats under power, dives under braking, and can't turn tightly at speed
+    or pivot from a standstill. Behaviour matches on both peers.
 
 ---
 

@@ -44,7 +44,6 @@ signal cargo_changed(good_id: String, new_quantity: int)
 # Local-space contact points used to estimate pitch/roll over the dunes. These
 # correspond to roughly the four corners of the hull footprint.
 @export var terrain_clearance: float = 0.0
-@export var terrain_height_lerp: float = 6.0
 @export var terrain_tilt_lerp: float = 5.0
 @export var terrain_pitch_amount: float = 1.0
 @export var terrain_roll_amount: float = 1.0
@@ -52,6 +51,24 @@ signal cargo_changed(good_id: String, new_quantity: int)
 @export var terrain_contact_back: float = -17.15
 @export var terrain_contact_side: float = 12.25
 @export var terrain_contact_local_y: float = -2.0
+
+# ── Vehicle dynamics (large wheeled-vehicle feel) ─────────────────────────────
+# These layer mass / terrain / chassis behaviour on top of the kinematic drive.
+# All run on the helm authority except the suspension + weight-transfer pass,
+# which runs on every peer (it only needs the replicated speed/yaw).
+@export var grade_gravity: float = 8.0            # m/s² gravity pull along the slope under the hull
+@export var max_downhill_overspeed: float = 1.35  # forward speed cap = eff_max_forward × this when descending
+@export var grade_rolling_resistance: float = 0.7 # extra drag that scales with |slope| (steeper = more)
+@export var min_turn_radius: float = 14.0         # m — the hull physically can't turn tighter than this
+@export var caster_strength: float = 1.1          # how strongly the wheel self-centres at speed
+@export var yaw_inertia: float = 0.6              # 0 = old snappy ramp; higher = heavier to swing the bow
+@export var suspension_stiffness: float = 55.0    # spring constant for body heave
+@export var suspension_damping: float = 8.5       # damper for body heave (higher = less bob)
+@export var max_suspension_drop: float = 13.0     # m/s the body may fall chasing terrain (gives crest air)
+@export var pitch_per_accel: float = 0.022        # rad of pitch per m/s² longitudinal (accel squat / brake dive)
+@export var roll_per_lat: float = 0.013           # rad of roll per m/s² lateral (load lean in turns)
+@export var weight_transfer_lerp: float = 6.0     # smoothing for the dynamic pitch/roll
+@export var max_weight_transfer: float = 0.10     # rad clamp on dynamic pitch and roll
 
 # Only solid bodies on this mask block forward motion (terrain chunks excluded).
 @export_flags_3d_physics var obstacle_collision_mask: int = 1
@@ -126,6 +143,13 @@ var current_pitch: float = 0.0    # smoothed pitch from terrain
 var current_roll: float = 0.0     # smoothed roll from terrain
 var _terrain: Node = null         # cached ChunkManager reference
 
+# Suspension + weight-transfer state (runs on every peer).
+var _heave_vel: float = 0.0       # vertical spring velocity of the chassis
+var _pitch_dyn: float = 0.0       # dynamic pitch from accel/brake weight transfer
+var _roll_dyn: float = 0.0        # dynamic roll from lateral load
+var _prev_speed: float = 0.0      # for longitudinal-acceleration estimation
+var _prev_yaw: float = 0.0        # for yaw-rate / lateral-accel estimation
+
 @onready var _steam_plant: Node = get_node_or_null("SteamPlant")
 
 
@@ -134,6 +158,8 @@ func _ready() -> void:
 	add_to_group("ship")
 	position = Vector3.ZERO
 	money = starting_money
+	_prev_yaw = virtual_yaw
+	_prev_speed = current_speed
 
 
 ## Authority drives input and updates virtual_yaw/world_offset; all peers run
@@ -182,6 +208,19 @@ func _physics_process(delta: float) -> void:
 		var drag: float = brake_drag if braking else deceleration_drag
 		current_speed = move_toward(current_speed, 0.0, drag * delta)
 	current_speed = clampf(current_speed, -eff_max_reverse, eff_max_forward)
+
+	# ── (1) Terrain-coupled longitudinal dynamics ───────────────────────────
+	# Gravity along the slope under the hull: climbing bleeds speed (and rolls
+	# the ship back if the boiler can't overcome the grade), descending gives a
+	# gravity assist. Steeper ground also adds rolling resistance. Applied after
+	# the engine clamp so downhill can legitimately overspeed the order.
+	var slope := _slope_along_heading()
+	if not is_zero_approx(slope):
+		current_speed += -grade_gravity * sin(slope) * delta
+		var resist := grade_rolling_resistance * absf(sin(slope))
+		current_speed = move_toward(current_speed, 0.0, resist * delta)
+	current_speed = clampf(current_speed,
+			-eff_max_reverse, eff_max_forward * max_downhill_overspeed)
 
 	_update_turning(turn_input, delta, eff_max_forward, eff_max_reverse, eff_turn_speed)
 
@@ -265,19 +304,38 @@ func _get_engine_order_speed(eff_max_forward: float, eff_max_reverse: float) -> 
 ## At zero speed we can't turn at all (no traction); the faster we go the less
 ## responsive the wheel. Effective max speeds and turn rate come from the
 ## caller, already reduced by system integrity.
+## (4) Yaw inertia, a real minimum turning radius, and self-centring caster.
+## The bow swings with momentum (slow ramp in/out, scaled by yaw_inertia); the
+## hull can't turn tighter than `min_turn_radius` so high speed forces a wide
+## arc you must plan; releasing the wheel lets caster straighten it, harder the
+## faster you go.
 func _update_turning(turn_input: float, delta: float, eff_max_forward: float, eff_max_reverse: float, eff_turn_speed: float) -> void:
 	var max_speed_for_direction := eff_max_forward if current_speed >= 0.0 else eff_max_reverse
 	var speed_ratio := clampf(absf(current_speed) / maxf(max_speed_for_direction, 0.001), 0.0, 1.0)
 	if is_zero_approx(speed_ratio):
-		current_turn_rate = 0.0
+		# No traction at a standstill — a big wheeled hull can't pivot in place.
+		current_turn_rate = move_toward(current_turn_rate, 0.0, turn_deceleration * delta)
+		virtual_yaw += current_turn_rate * delta
 		return
+	# Two independent caps: the existing high-speed responsiveness fall-off, and
+	# a hard turning-radius limit (yaw_rate = v / R, so a fixed minimum radius
+	# means yaw authority shrinks as speed rises — physical, not just a feel knob).
 	var capped_turn_speed := maxf(0.0, eff_turn_speed - absf(current_speed) * turn_speed_penalty)
+	var radius_cap := absf(current_speed) / maxf(min_turn_radius, 0.001)
+	var max_rate := minf(capped_turn_speed, radius_cap)
 	# When reversing, steering inverts — same convention as a real wheeled vehicle.
 	var velocity_direction := 1.0 if current_speed > 0.0 else -1.0
-	var target_turn_rate := -turn_input * capped_turn_speed * speed_ratio * velocity_direction
-	var turn_lerp_speed := turn_acceleration if absf(target_turn_rate) > absf(current_turn_rate) \
+	var target_turn_rate := -turn_input * max_rate * velocity_direction
+	# Yaw inertia: heavier swing both into and out of a turn.
+	var inertia := 1.0 / (1.0 + maxf(yaw_inertia, 0.0))
+	var ramp := turn_acceleration if absf(target_turn_rate) > absf(current_turn_rate) \
 			else turn_deceleration
-	current_turn_rate = move_toward(current_turn_rate, target_turn_rate, turn_lerp_speed * delta)
+	ramp *= inertia
+	# Caster self-centring: with little wheel input, the faster we go the more
+	# aggressively the bow straightens out on its own.
+	if absf(turn_input) < 0.1:
+		ramp += caster_strength * speed_ratio
+	current_turn_rate = move_toward(current_turn_rate, target_turn_rate, ramp * delta)
 	virtual_yaw += current_turn_rate * delta
 
 
@@ -286,10 +344,7 @@ func _update_turning(turn_input: float, delta: float, eff_max_forward: float, ef
 ## from the height differences. The ship's X/Z stay at 0 — only Y and the two
 ## rotational axes change.
 func _apply_terrain_following(delta: float) -> void:
-	if _terrain == null or not is_instance_valid(_terrain):
-		_terrain = get_tree().get_first_node_in_group("terrain")
-		if _terrain == null:
-			_terrain = get_node_or_null("../WorldMap")
+	_ensure_terrain()
 
 	var target_height: float = terrain_clearance
 	var target_pitch: float = 0.0
@@ -307,13 +362,59 @@ func _apply_terrain_following(delta: float) -> void:
 		target_pitch = atan2(back_height - front_height, wheel_base) * terrain_pitch_amount
 		target_roll = current_tilt + atan2(right_height - left_height, track_width) * terrain_roll_amount
 
-	var height_weight := clampf(terrain_height_lerp * delta, 0.0, 1.0)
 	var tilt_weight := clampf(terrain_tilt_lerp * delta, 0.0, 1.0)
 	current_pitch = lerpf(current_pitch, target_pitch, tilt_weight)
 	current_roll = lerpf(current_roll, target_roll, tilt_weight)
-	# Ship stays at the X/Z origin with no yaw; the terrain rotates and scrolls instead.
-	position = Vector3(0.0, lerpf(position.y, target_height, height_weight), 0.0)
-	rotation = Vector3(current_pitch, 0.0, current_roll)
+
+	# ── (3a) Suspension: a spring-damper heave instead of a flat lerp, so the
+	# chassis bobs over swells and floats briefly off sharp crests before it
+	# settles. The downward chase is rate-limited (max_suspension_drop) to
+	# exaggerate that moment of air when the dune falls away.
+	var dt := maxf(delta, 0.00001)
+	var disp := target_height - position.y
+	_heave_vel += (disp * suspension_stiffness - _heave_vel * suspension_damping) * dt
+	if _heave_vel < -max_suspension_drop:
+		_heave_vel = -max_suspension_drop
+	var new_y := position.y + _heave_vel * dt
+
+	# ── (3b) Weight transfer: longitudinal accel pitches the hull (squat under
+	# power, dive under braking) and lateral load rolls it. Uses replicated
+	# speed/yaw so it reads identically on every peer (no extra sync).
+	var long_accel := (current_speed - _prev_speed) / dt
+	var yaw_rate := wrapf(virtual_yaw - _prev_yaw, -PI, PI) / dt
+	var lat_accel := current_speed * yaw_rate
+	var tgt_pitch_dyn := clampf(-long_accel * pitch_per_accel, -max_weight_transfer, max_weight_transfer)
+	var tgt_roll_dyn := clampf(lat_accel * roll_per_lat, -max_weight_transfer, max_weight_transfer)
+	var wt := clampf(weight_transfer_lerp * dt, 0.0, 1.0)
+	_pitch_dyn = lerpf(_pitch_dyn, tgt_pitch_dyn, wt)
+	_roll_dyn = lerpf(_roll_dyn, tgt_roll_dyn, wt)
+	_prev_speed = current_speed
+	_prev_yaw = virtual_yaw
+
+	# Ship stays at the X/Z origin with no yaw; the terrain rotates and scrolls.
+	position = Vector3(0.0, new_y, 0.0)
+	rotation = Vector3(current_pitch + _pitch_dyn, 0.0, current_roll + _roll_dyn)
+
+
+## Resolve the ChunkManager once (group lookup, with a sibling fallback).
+func _ensure_terrain() -> void:
+	if _terrain == null or not is_instance_valid(_terrain):
+		_terrain = get_tree().get_first_node_in_group("terrain")
+		if _terrain == null:
+			_terrain = get_node_or_null("../WorldMap")
+
+
+## Signed terrain slope along the bow axis (radians). Positive = the ground
+## rises ahead of the bow (climbing when moving forward). Used by the
+## longitudinal-dynamics pass to apply gravity along the grade.
+func _slope_along_heading() -> float:
+	_ensure_terrain()
+	if _terrain == null or not _terrain.has_method("sample_height"):
+		return 0.0
+	var front_height: float = _sample_terrain_height(Vector3(0.0, 0.0, terrain_contact_front))
+	var back_height: float = _sample_terrain_height(Vector3(0.0, 0.0, terrain_contact_back))
+	var wheel_base := terrain_contact_front - terrain_contact_back
+	return atan2(front_height - back_height, wheel_base)
 
 
 ## Translate a ship-local contact offset into the (virtual) world position used
