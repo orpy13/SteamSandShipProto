@@ -51,6 +51,10 @@ signal cargo_changed(good_id: String, new_quantity: int)
 @export var terrain_contact_back: float = -17.15
 @export var terrain_contact_side: float = 12.25
 @export var terrain_contact_local_y: float = -2.0
+# Per-wheel terrain conform: each Wheel* child is planted on the sand under it
+# while the hull keeps the smoothed pitch/roll/heave above. Tweak to seat the
+# wheel meshes correctly on the surface.
+@export var wheel_ground_offset: float = 0.0
 
 # ── Vehicle dynamics (large wheeled-vehicle feel) ─────────────────────────────
 # These layer mass / terrain / chassis behaviour on top of the kinematic drive.
@@ -59,16 +63,17 @@ signal cargo_changed(good_id: String, new_quantity: int)
 @export var grade_gravity: float = 8.0            # m/s² gravity pull along the slope under the hull
 @export var max_downhill_overspeed: float = 1.35  # forward speed cap = eff_max_forward × this when descending
 @export var grade_rolling_resistance: float = 0.7 # extra drag that scales with |slope| (steeper = more)
+@export var grade_speed_sensitivity: float = 6.0  # how hard a grade re-scales sustainable speed (HUD-visible)
 @export var min_turn_radius: float = 14.0         # m — the hull physically can't turn tighter than this
 @export var caster_strength: float = 1.1          # how strongly the wheel self-centres at speed
 @export var yaw_inertia: float = 0.6              # 0 = old snappy ramp; higher = heavier to swing the bow
 @export var suspension_stiffness: float = 55.0    # spring constant for body heave
 @export var suspension_damping: float = 8.5       # damper for body heave (higher = less bob)
 @export var max_suspension_drop: float = 13.0     # m/s the body may fall chasing terrain (gives crest air)
-@export var pitch_per_accel: float = 0.022        # rad of pitch per m/s² longitudinal (accel squat / brake dive)
+@export var pitch_per_accel: float = 0.002        # rad of pitch per m/s² longitudinal (accel squat / brake dive)
 @export var roll_per_lat: float = 0.013           # rad of roll per m/s² lateral (load lean in turns)
 @export var weight_transfer_lerp: float = 6.0     # smoothing for the dynamic pitch/roll
-@export var max_weight_transfer: float = 0.10     # rad clamp on dynamic pitch and roll
+@export var max_weight_transfer: float = 0.05     # rad clamp on dynamic pitch and roll
 
 # Only solid bodies on this mask block forward motion (terrain chunks excluded).
 @export_flags_3d_physics var obstacle_collision_mask: int = 1
@@ -149,6 +154,8 @@ var _pitch_dyn: float = 0.0       # dynamic pitch from accel/brake weight transf
 var _roll_dyn: float = 0.0        # dynamic roll from lateral load
 var _prev_speed: float = 0.0      # for longitudinal-acceleration estimation
 var _prev_yaw: float = 0.0        # for yaw-rate / lateral-accel estimation
+# Cached Wheel* children + their design X/Z; only their Y is driven each frame.
+var _wheels: Array = []           # [{ "node": Node3D, "lx": float, "lz": float }]
 
 @onready var _steam_plant: Node = get_node_or_null("SteamPlant")
 
@@ -160,6 +167,10 @@ func _ready() -> void:
 	money = starting_money
 	_prev_yaw = virtual_yaw
 	_prev_speed = current_speed
+	for child in get_children():
+		if child is Node3D and String(child.name).begins_with("Wheel"):
+			var w := child as Node3D
+			_wheels.append({"node": w, "lx": w.position.x, "lz": w.position.z})
 
 
 ## Authority drives input and updates virtual_yaw/world_offset; all peers run
@@ -197,28 +208,40 @@ func _physics_process(delta: float) -> void:
 
 	var target_speed := _get_engine_order_speed(eff_max_forward, eff_max_reverse)
 	var power_ratio := _get_steam_power_ratio(delta)
-	if not is_zero_approx(target_speed):
-		# Accelerate only as fast as the boiler will let us; if the boiler is
-		# starved (no pressure / no water / no coal) we coast.
-		if power_ratio > 0.02:
-			current_speed = move_toward(current_speed, target_speed, acceleration * power_ratio * delta)
-		else:
-			current_speed = move_toward(current_speed, 0.0, deceleration_drag * delta)
-	else:
-		var drag: float = brake_drag if braking else deceleration_drag
-		current_speed = move_toward(current_speed, 0.0, drag * delta)
-	current_speed = clampf(current_speed, -eff_max_reverse, eff_max_forward)
 
 	# ── (1) Terrain-coupled longitudinal dynamics ───────────────────────────
-	# Gravity along the slope under the hull: climbing bleeds speed (and rolls
-	# the ship back if the boiler can't overcome the grade), descending gives a
-	# gravity assist. Steeper ground also adds rolling resistance. Applied after
-	# the engine clamp so downhill can legitimately overspeed the order.
+	# `slope` > 0 = the ground rises ahead of the bow (a climb when moving
+	# forward). It does two things:
+	#   • Powered: the grade re-scales the speed the drivetrain can SUSTAIN, so
+	#     the telegraph can read Full Ahead while you only crawl up a dune (and
+	#     overspeed down the far side). This is what visibly moves the HUD.
+	#   • Unpowered (Stop / starved boiler): raw gravity rolls the hull down the
+	#     slope, so a parked ship on a grade creeps / slides backward.
 	var slope := _slope_along_heading()
-	if not is_zero_approx(slope):
-		current_speed += -grade_gravity * sin(slope) * delta
-		var resist := grade_rolling_resistance * absf(sin(slope))
-		current_speed = move_toward(current_speed, 0.0, resist * delta)
+	var grade_sin := sin(slope)
+	var powered := not is_zero_approx(target_speed) and power_ratio > 0.02
+
+	if powered:
+		# Uphill (grade_sin > 0) cuts the sustainable speed; downhill raises it.
+		var grade_factor := clampf(1.0 - grade_sin * grade_speed_sensitivity, 0.1, 2.0)
+		var eff_target := target_speed
+		if target_speed > 0.0:
+			eff_target = target_speed * grade_factor
+		current_speed = move_toward(current_speed, eff_target, acceleration * power_ratio * delta)
+	elif not is_zero_approx(target_speed):
+		# Order rung but the boiler is starved — coast.
+		current_speed = move_toward(current_speed, 0.0, deceleration_drag * delta)
+	else:
+		# Telegraph at Stop: brake/coast drag, then gravity rolls us downhill.
+		var drag: float = brake_drag if braking else deceleration_drag
+		current_speed = move_toward(current_speed, 0.0, drag * delta)
+		current_speed += -grade_gravity * grade_sin * delta
+
+	# Grade rolling resistance always nibbles a little speed (steeper = more).
+	if not is_zero_approx(grade_sin):
+		current_speed = move_toward(current_speed, 0.0,
+				grade_rolling_resistance * absf(grade_sin) * delta)
+
 	current_speed = clampf(current_speed,
 			-eff_max_reverse, eff_max_forward * max_downhill_overspeed)
 
@@ -394,6 +417,33 @@ func _apply_terrain_following(delta: float) -> void:
 	# Ship stays at the X/Z origin with no yaw; the terrain rotates and scrolls.
 	position = Vector3(0.0, new_y, 0.0)
 	rotation = Vector3(current_pitch + _pitch_dyn, 0.0, current_roll + _roll_dyn)
+
+	_conform_wheels()
+
+
+## Plant each wheel on the sand directly beneath it while the hull keeps its
+## smoothed pitch/roll/heave above. We solve, per wheel, the local Y that lands
+## its design (X,Z) on the terrain height there given the body's current
+## transform — so the wheels track the dunes independently of how the hull
+## leans. Visual only; runs on every peer.
+func _conform_wheels() -> void:
+	if _wheels.is_empty() or _terrain == null or not _terrain.has_method("sample_height"):
+		return
+	var b := transform.basis
+	var byy := b.y.y
+	if absf(byy) < 0.01:
+		return  # near-vertical hull; skip this frame rather than divide by ~0
+	for entry in _wheels:
+		var node: Node3D = entry["node"]
+		if node == null or not is_instance_valid(node):
+			continue
+		var lx: float = entry["lx"]
+		var lz: float = entry["lz"]
+		var h := _sample_terrain_height(Vector3(lx, 0.0, lz))
+		var target_world_y := h - terrain_contact_local_y + terrain_clearance + wheel_ground_offset
+		# world_y = position.y + lx*b.x.y + ly*b.y.y + lz*b.z.y  →  solve ly.
+		var ly := (target_world_y - position.y - lx * b.x.y - lz * b.z.y) / byy
+		node.position = Vector3(lx, ly, lz)
 
 
 ## Resolve the ChunkManager once (group lookup, with a sibling fallback).

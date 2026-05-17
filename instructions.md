@@ -149,18 +149,22 @@ On top of the kinematic drive, `ship_controller.gd` layers three systems
 that sell the mass of a large wheeled hull (all tunable via `@export`):
 
 - **Terrain-coupled longitudinal dynamics** — the slope under the bow
-  (`_slope_along_heading`) applies a gravity component to `current_speed`:
-  climbing bleeds speed and will roll the ship back if the boiler can't
-  beat the grade; descending gives a gravity assist (forward speed may
-  exceed the engine order up to `max_downhill_overspeed`). Steeper ground
-  adds rolling resistance. This closes a feedback loop with the steam
-  plant — a hill raises load, pressure sags, you slow. Runs on the helm
-  authority (mutates the replicated `current_speed`).
-- **Suspension + weight transfer** — body heave is a spring-damper
-  (`suspension_stiffness`/`damping`) instead of a flat lerp, with a
-  rate-limited downward chase (`max_suspension_drop`) so the hull floats
-  briefly off sharp crests. Longitudinal accel pitches the hull (squat /
-  brake-dive), lateral load rolls it. Runs on **every peer** — it only
+  (`_slope_along_heading`) re-scales the speed the drivetrain can
+  *sustain* while powered (`grade_speed_sensitivity`): the telegraph can
+  read Full Ahead while you only crawl up a dune and overspeed down it
+  (forward cap = `eff_max_forward × max_downhill_overspeed`) — so the HUD
+  speed visibly tracks the terrain. Unpowered (Stop / starved boiler),
+  raw `grade_gravity` rolls a parked hull down the grade. Steeper ground
+  adds rolling resistance. Closes a feedback loop with the steam plant.
+  Runs on the helm authority (mutates the replicated `current_speed`).
+- **Suspension + weight transfer + wheel conform** — body heave is a
+  spring-damper (`suspension_stiffness`/`damping`) instead of a flat lerp,
+  with a rate-limited downward chase (`max_suspension_drop`) so the hull
+  floats briefly off sharp crests. Longitudinal accel pitches the hull
+  (squat / brake-dive), lateral load rolls it. Each `Wheel*` child is then
+  planted on the sand directly under it (`_conform_wheels`, tuned via
+  `wheel_ground_offset`) so the wheels track the dunes independently while
+  the hull keeps the smoothed pose above. Runs on **every peer** — only
   needs the replicated speed/yaw, so no extra sync.
 - **Yaw inertia & turning radius** — the bow swings with momentum
   (`yaw_inertia`), can't turn tighter than `min_turn_radius` (so high
