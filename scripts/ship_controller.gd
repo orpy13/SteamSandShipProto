@@ -129,13 +129,13 @@ var system_integrity: Dictionary = {
 @export var min_mobility_factor: float = 0.3        # mobility at 0% integrity still allows 30% speed
 @export var min_control_factor: float = 0.2         # control at 0% integrity is sluggish but not dead
 
-# Fallback ship-local centroids used only when the corresponding scene node
-# can't be found (e.g. someone renamed it). The live values come from
-# `_get_system_positions()` below, which reads the actual node transforms so
-# moving / replacing the bridge house, cargo hold, etc. updates the damage
-# cone automatically.
+# Fallback ship-local centroids for the INTERNAL systems only, used when the
+# corresponding scene node can't be found (e.g. someone renamed it). The live
+# values come from `_get_system_positions()` below. `mobility` (the wheels) is
+# deliberately absent: it sits on the *outside* of the hull, so it's only ever
+# damaged by direct wheel hits — never by the penetration cone, which models
+# fragments reaching systems *behind* a breached hull wall.
 const _SYSTEM_POSITION_FALLBACKS: Dictionary = {
-	"mobility": Vector3(0.0, 0.0, 0.0),
 	"power":    Vector3(0.0, 0.5, -17.0),
 	"control":  Vector3(0.0, 7.0, -22.0),
 	"cargo":    Vector3(0.0, 5.5, 4.0),
@@ -518,10 +518,11 @@ func _part_to_primary_system(part: String) -> String:
 		_:             return ""
 
 
-## Roll the penetration cone against each internal system. Cone origin is the
-## impact point, axis is the shell's velocity (forward into the ship); systems
-## within the cone get an independent chance to take damage. Multiple systems
-## can be damaged per shell — by design, see damage discussion turn.
+## Roll the penetration cone against each INTERNAL system (power/control/cargo).
+## Cone origin is the impact point, axis is the shell's velocity (forward into
+## the ship); systems within the cone get an independent chance to take damage.
+## Multiple systems can be damaged per shell — by design. `mobility` (external
+## wheels) is intentionally not a target here: it only takes direct wheel hits.
 func _run_penetration(impact_local: Vector3, velocity_local: Vector3, wall_hp: float) -> void:
 	if velocity_local.length_squared() < 0.0001:
 		return
@@ -549,26 +550,17 @@ func _run_penetration(impact_local: Vector3, velocity_local: Vector3, wall_hp: f
 			_apply_damage.rpc(sys_name, penetration_damage)
 
 
-## Look up each internal-system centroid from the actual scene nodes so the
-## damage cone tracks them when art is replaced or nodes are repositioned.
+## Look up each INTERNAL-system centroid from the actual scene nodes so the
+## penetration cone tracks them when art is replaced or nodes are repositioned.
 ## Conventions:
-##   • mobility → average position of every Wheel* child
 ##   • power    → BoilerFirebox.position (SteamPlant itself is a non-spatial Node)
 ##   • control  → BridgeHouse.position
 ##   • cargo    → CargoHold.position
-## Missing nodes fall back to the const values above so the model still works
-## on partial scenes.
+## `mobility` is not included — the wheels are external and only take direct
+## hits (see _part_to_primary_system / register_hit). Missing nodes fall back
+## to the const values above so the model still works on partial scenes.
 func _get_system_positions() -> Dictionary:
 	var positions: Dictionary = {}
-
-	var wheel_sum := Vector3.ZERO
-	var wheel_count := 0
-	for child in get_children():
-		if child is Node3D and String(child.name).begins_with("Wheel"):
-			wheel_sum += (child as Node3D).position
-			wheel_count += 1
-	positions["mobility"] = (wheel_sum / float(wheel_count)) if wheel_count > 0 \
-			else _SYSTEM_POSITION_FALLBACKS["mobility"]
 
 	var firebox := get_node_or_null("BoilerFirebox") as Node3D
 	positions["power"] = firebox.position if firebox != null \

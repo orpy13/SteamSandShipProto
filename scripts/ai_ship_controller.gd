@@ -53,18 +53,14 @@ var current_speed: float = 0.0
 var state: int = STATE_APPROACH
 
 # ── Damage ───────────────────────────────────────────────────────────────────
-# Bandits use a simpler two-system damage model: hull integrity for absorption
-# (zero = destroyed) and mobility for speed cap. Same penetration mechanic as
-# the player ship — a wheel hit damages mobility directly; a hull hit can
-# *also* damage mobility through the penetration cone.
+# Bandits use a simpler two-system model: hull integrity for absorption (zero =
+# destroyed) and mobility for speed cap. Both are *external* — hull-face walls
+# and the wheels — so every hit is a direct hit; there is no penetration cone
+# (bandits have no systems behind the hull for fragments to reach).
 signal damage_taken(hit_count: int, part: String)
 signal system_changed(system: String, integrity: float)
 
 @export var direct_hit_damage: float = 0.15
-@export var penetration_damage: float = 0.10
-@export var penetration_half_angle: float = deg_to_rad(25.0)
-@export var penetration_cone_length: float = 10.0
-@export var penetration_base_max: float = 0.8
 @export var min_mobility_factor: float = 0.3
 
 var hit_count: int = 0
@@ -73,13 +69,6 @@ var last_hit_part: String = ""
 var system_integrity: Dictionary = {
 	"hull":     1.0,
 	"mobility": 1.0,
-}
-
-# Fallback for the single internal-system centroid (mobility). The live value
-# is computed from the bandit's actual wheel positions in `_get_system_positions()`,
-# so swapping the wagon's mesh / wheel layout updates the damage cone too.
-const _SYSTEM_POSITION_FALLBACKS: Dictionary = {
-	"mobility": Vector3(0.0, 0.0, 0.0),
 }
 
 # ── Server-local state (not replicated) ──────────────────────────────────────
@@ -105,10 +94,10 @@ func _ready() -> void:
 
 
 ## Called by player shells on hit. Same shape as ship_controller.register_hit
-## — emits the existing damage_taken pulse for symmetry, then routes the part
-## into the integrity model (direct damage + penetration cone for hull hits).
+## (the impact/velocity args are accepted for call compatibility but unused —
+## bandits have no internal systems, so every hit is a direct hit, no cone).
 ## Server-only entry. Bandit is destroyed once hull integrity hits 0.
-func register_hit(part: String, impact_world: Vector3 = Vector3.ZERO, velocity_world: Vector3 = Vector3.ZERO) -> void:
+func register_hit(part: String, _impact_world: Vector3 = Vector3.ZERO, _velocity_world: Vector3 = Vector3.ZERO) -> void:
 	if not multiplayer.is_server():
 		return
 	_apply_hit.rpc(part)
@@ -116,10 +105,6 @@ func register_hit(part: String, impact_world: Vector3 = Vector3.ZERO, velocity_w
 	if primary.is_empty():
 		return
 	_apply_damage.rpc(primary, direct_hit_damage)
-	if primary == "hull":
-		var impact_local := _world_to_ship_local_point(impact_world)
-		var velocity_local := _world_to_ship_local_direction(velocity_world)
-		_run_penetration(impact_local, velocity_local, float(system_integrity.get("hull", 1.0)))
 	# Destruction check: hull integrity at zero, the wagon comes apart.
 	if float(system_integrity.get("hull", 1.0)) <= 0.0:
 		var bdir := get_tree().get_first_node_in_group("bandit_director")
@@ -136,49 +121,6 @@ func _part_to_primary_system(part: String) -> String:
 		"wheel":  return "mobility"
 		"bridge": return "hull"  # bandits have no bridge system; absorb as hull
 		_:        return ""
-
-
-## Run the penetration cone — for bandits there's only one internal target
-## (mobility), but the math is identical to the player ship's version.
-func _run_penetration(impact_local: Vector3, velocity_local: Vector3, wall_hp: float) -> void:
-	if velocity_local.length_squared() < 0.0001:
-		return
-	var base_chance := (1.0 - wall_hp) * penetration_base_max
-	if base_chance <= 0.0:
-		return
-	var dir := velocity_local.normalized()
-	var cos_half := cos(penetration_half_angle)
-	var positions := _get_system_positions()
-	for sys_name in positions.keys():
-		var sys_pos: Vector3 = positions[sys_name]
-		var vec: Vector3 = sys_pos - impact_local
-		var dist := vec.length()
-		if dist > penetration_cone_length or dist < 0.001:
-			continue
-		var cos_angle := vec.normalized().dot(dir)
-		if cos_angle < cos_half:
-			continue
-		var angle_factor := (cos_angle - cos_half) / (1.0 - cos_half)
-		var distance_factor := 1.0 - (dist / penetration_cone_length)
-		var chance := base_chance * angle_factor * distance_factor
-		if randf() < chance:
-			_apply_damage.rpc(sys_name, penetration_damage)
-
-
-## Look up the bandit's internal-system centroid live from the wheel nodes,
-## so changes to the AI ship's layout don't require code edits. Falls back to
-## the const value above if no wheel children are found.
-func _get_system_positions() -> Dictionary:
-	var positions: Dictionary = {}
-	var wheel_sum := Vector3.ZERO
-	var wheel_count := 0
-	for child in get_children():
-		if child is Node3D and String(child.name).begins_with("Wheel"):
-			wheel_sum += (child as Node3D).position
-			wheel_count += 1
-	positions["mobility"] = (wheel_sum / float(wheel_count)) if wheel_count > 0 \
-			else _SYSTEM_POSITION_FALLBACKS["mobility"]
-	return positions
 
 
 ## All peers: bump hit counter + emit pulse (existing behaviour, preserved
@@ -204,17 +146,6 @@ func _apply_damage(system: String, amount: float) -> void:
 	var new_value := clampf(float(system_integrity[system]) - amount, 0.0, 1.0)
 	system_integrity[system] = new_value
 	system_changed.emit(system, new_value)
-
-
-# ── Coordinate helpers (same math as ship_controller's) ──────────────────────
-
-func _world_to_ship_local_point(world_pos: Vector3) -> Vector3:
-	var delta := world_pos - world_offset
-	return Basis(Vector3.UP, -virtual_yaw) * delta
-
-
-func _world_to_ship_local_direction(world_dir: Vector3) -> Vector3:
-	return Basis(Vector3.UP, -virtual_yaw) * world_dir
 
 
 ## Server simulates the AI. All peers (including server) read replicated state

@@ -206,18 +206,23 @@ detection** (shape query → classify struck part by collider name →
 `register_hit(part, impact_world, velocity_world)`).
 
 **Damage model** (`ship_controller.gd`): server-authoritative
-`system_integrity` dict — 5 hull faces (`hull_left/right/fore/aft/deck`) + 4
-internal systems (`mobility/power/control/cargo`). A direct hit subtracts
-`direct_hit_damage` from the struck system. Hull-face hits also roll a
-**penetration cone**: chance rises as that wall's HP falls
-(`(1-wall_hp)·penetration_base_max`), projected forward along the shell's
-velocity from the impact point; each internal system inside the cone gets an
-independent damage roll (multiple systems per shell is intentional).
+`system_integrity` dict — 5 hull faces (`hull_left/right/fore/aft/deck`),
+the external `mobility` (wheels), and 3 *internal* systems
+(`power/control/cargo`). A direct hit subtracts `direct_hit_damage` from the
+struck system — this is the **only** way `mobility` is damaged: the wheels
+sit outside the hull, so a direct wheel hit degrades them and nothing else
+reaches them. Hull-face hits additionally roll a **penetration cone**:
+chance rises as that wall's HP falls (`(1-wall_hp)·penetration_base_max`),
+projected forward along the shell's velocity from the impact point; each
+**internal** system inside the cone gets an independent damage roll
+(multiple per shell is intentional). The cone targets only
+`power/control/cargo` — it models fragments reaching systems *behind* a
+breached wall, so external `mobility` is deliberately excluded.
 `mobility` caps top speed (min 30%), `control` caps turn responsiveness (min
-20%), `power` worsens boiler leaks. System centroids are read live from
-scene nodes (`Wheel*`, `BoilerFirebox`, `BridgeHouse`, `CargoHold`) with
-const fallbacks. Damage/repair broadcast via sender-validated RPCs; HUD
-shows a 9-value readout; `damage_taken` drives per-peer screen shake.
+20%), `power` worsens boiler leaks. Internal-system centroids are read live
+from scene nodes (`BoilerFirebox`, `BridgeHouse`, `CargoHold`) with const
+fallbacks. Damage/repair broadcast via sender-validated RPCs; HUD shows a
+9-value readout; `damage_taken` drives per-peer screen shake.
 
 **Bandits** (`ai_ship_controller.gd` + `bandit_director.gd`): host-only
 director rolls on a timer to spawn one bandit at a time *behind* a moving
@@ -225,8 +230,10 @@ player. The bandit shares the `world_offset`/`virtual_yaw` model, lives
 under WorldMap, and runs a two-state machine: **APPROACH** (drive straight
 at the player) → **PACE** (slot to a fixed standoff on one side, match
 heading/speed, fire `fire_interval` broadsides with ballistic drop
-compensation + spread). Simpler 2-bucket damage (`hull`, `mobility`); hull
-at 0 → `director.destroy_bandit`. No retreat — fights to the death.
+compensation + spread). Simpler 2-bucket damage (`hull`, `mobility`) — both
+external, so every hit is a direct hit and there is no penetration cone
+(bandits have no systems behind the hull). Hull at 0 →
+`director.destroy_bandit`. No retreat — fights to the death.
 
 ---
 
@@ -479,8 +486,11 @@ Context-sensitive remapping (player_controller):
 
 **New ship system for the damage model**
 
-- Add a key to `ship_controller.system_integrity` and a centroid lookup in
-  `_get_system_positions()` (+ a `_SYSTEM_POSITION_FALLBACKS` entry).
+- Add a key to `ship_controller.system_integrity`. If it's an **internal**
+  system (behind the hull), add a centroid lookup in
+  `_get_system_positions()` (+ a `_SYSTEM_POSITION_FALLBACKS` entry) so the
+  penetration cone can target it. If it's **external** (like `mobility`),
+  do *not* add it there — it should only take direct hits.
 - Map struck collider names to it in `_part_to_primary_system` and
   `cannonball._classify_part_by_name`.
 - Add it to the HUD readout in `hud._refresh_damage_label`.
