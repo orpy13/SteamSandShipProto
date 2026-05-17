@@ -36,6 +36,19 @@ extends Node3D
 @export var solar_tilt: float = 0.25
 ## Local distance the Pole Star marker sits from the rig origin.
 @export var pole_star_distance: float = 600.0
+## Distance the sun-halo / moon billboards sit from the rig (keep < camera far).
+@export var celestial_distance: float = 1400.0
+## Apparent angular diameter of the sun glow billboard, in degrees (stylized,
+## bigger than the real ~0.5° so the bloom has a shaped falloff).
+@export var sun_disc_angular_deg: float = 7.0
+## Apparent angular diameter of the moon billboard, in degrees.
+@export var moon_disc_angular_deg: float = 5.0
+## Glow intensity at full day (ramped to near-zero at night). The over-bright
+## sun disc blooms through this — it's what sells "too bright to look at".
+@export var glow_day_intensity: float = 0.9
+## Auto-exposure makes the scene stop down when the sun is in frame (sells the
+## brightness) but also lifts night somewhat. Disable if night reads too pale.
+@export var use_auto_exposure: bool = true
 
 # World-frame cardinal convention (also documented in instructions.md):
 #   +X = East, -X = West, +Z = North, -Z = South, +Y = up.
@@ -43,11 +56,14 @@ extends Node3D
 
 var _ship: Node = null
 var _sun: DirectionalLight3D = null            # the existing main.tscn light
+var _world_env: WorldEnvironment = null
 var _env: Environment = null
 var _sky_mat: ProceduralSkyMaterial = null
 var _moon: DirectionalLight3D = null
-var _rig: Node3D = null                        # holds the Pole Star; pinned + rotated
+var _rig: Node3D = null                        # holds Pole Star + billboards; pinned + rotated
 var _pole_star: MeshInstance3D = null
+var _sun_halo: MeshInstance3D = null           # additive glow billboard at the sun
+var _moon_disc: MeshInstance3D = null          # emissive billboard at the anti-sun
 var _camera_anchor: Node3D = null              # what we pin the rig to (ship)
 
 # Cached so HUD / weather / AI can read the cycle without recomputing.
@@ -58,8 +74,10 @@ var _daylight: float = 1.0                     # 0 = full night, 1 = full day
 func _ready() -> void:
 	add_to_group("day_night")
 	_find_environment_and_sun()
+	_setup_environment()
 	_build_moon()
 	_build_pole_star()
+	_build_celestial_billboards()
 
 
 ## Recursively locate the WorldEnvironment + the first DirectionalLight3D that
@@ -70,6 +88,7 @@ func _find_environment_and_sun() -> void:
 	if root == null:
 		root = get_tree().root
 	var we := _find_first(root, "WorldEnvironment") as WorldEnvironment
+	_world_env = we
 	if we != null and we.environment != null:
 		_env = we.environment
 		if _env.sky != null and _env.sky.sky_material is ProceduralSkyMaterial:
@@ -128,6 +147,122 @@ func _build_pole_star() -> void:
 	_rig.add_child(_pole_star)
 
 
+## Configure the shared Environment for the "bright sun" look: HDR glow so the
+## over-bright disc blooms, a filmic tonemap so highlights roll off instead of
+## hard-clipping, and auto-exposure so the scene stops down when the sun is in
+## frame (the biggest single contributor to "too bright to look at").
+func _setup_environment() -> void:
+	if _env != null:
+		_env.glow_enabled = true
+		_env.glow_bloom = 0.15
+		_env.glow_hdr_threshold = 1.0
+		_env.glow_intensity = glow_day_intensity
+		_env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	# Auto-exposure rides on the WorldEnvironment's camera attributes so every
+	# player camera inherits it (none of them set their own attributes).
+	if _world_env != null and use_auto_exposure:
+		var ca := CameraAttributesPractical.new()
+		ca.auto_exposure_enabled = true
+		ca.auto_exposure_scale = 0.4
+		ca.auto_exposure_speed = 0.6
+		_world_env.camera_attributes = ca
+
+
+## A soft radial alpha gradient (white core → transparent edge), generated in
+## code so we ship no texture files (matches the project's procedural ethos).
+func _make_radial_texture(core: Color, edge_fade: float) -> GradientTexture2D:
+	var grad := Gradient.new()
+	grad.set_color(0, core)
+	grad.set_color(1, Color(core.r, core.g, core.b, 0.0))
+	grad.add_point(edge_fade, Color(core.r, core.g, core.b, core.a * 0.5))
+	var tex := GradientTexture2D.new()
+	tex.gradient = grad
+	tex.width = 256
+	tex.height = 256
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(1.0, 0.5)
+	return tex
+
+
+## Quad side length for a billboard of `angular_deg` apparent diameter sitting
+## at `celestial_distance`.
+func _disc_size(angular_deg: float) -> float:
+	return 2.0 * celestial_distance * tan(deg_to_rad(angular_deg) * 0.5)
+
+
+## Build the sun-glow and moon billboards as children of the rig (same rig the
+## Pole Star rides — pinned to the ship, rotated by -yaw, so they sit at the
+## correct apparent sky position with no parallax). Camera-facing quads with
+## procedural radial textures; the sun is additive so it blooms, the moon is a
+## crisper emissive disc.
+func _build_celestial_billboards() -> void:
+	if _rig == null:
+		return
+
+	_sun_halo = MeshInstance3D.new()
+	_sun_halo.name = "SunHalo"
+	var sq := QuadMesh.new()
+	sq.size = Vector2.ONE * _disc_size(sun_disc_angular_deg)
+	_sun_halo.mesh = sq
+	var sm := StandardMaterial3D.new()
+	sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	sm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	sm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	sm.billboard_keep_scale = true
+	sm.disable_receive_shadows = true
+	sm.albedo_texture = _make_radial_texture(Color(1.0, 0.95, 0.85, 1.0), 0.35)
+	sm.emission_enabled = true
+	sm.emission = Color(1.0, 0.93, 0.80)
+	sm.emission_energy_multiplier = 6.0     # >1 so it blooms through glow
+	_sun_halo.material_override = sm
+	_sun_halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_rig.add_child(_sun_halo)
+
+	_moon_disc = MeshInstance3D.new()
+	_moon_disc.name = "MoonDisc"
+	var mq := QuadMesh.new()
+	mq.size = Vector2.ONE * _disc_size(moon_disc_angular_deg)
+	_moon_disc.mesh = mq
+	var mm := StandardMaterial3D.new()
+	mm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mm.billboard_keep_scale = true
+	mm.disable_receive_shadows = true
+	# Crisper edge than the sun (opaque core, quick falloff) so it reads as a
+	# disc, not a glow.
+	mm.albedo_texture = _make_radial_texture(Color(0.86, 0.89, 1.0, 1.0), 0.72)
+	mm.emission_enabled = true
+	mm.emission = Color(0.70, 0.76, 0.95)
+	mm.emission_energy_multiplier = 1.6
+	_moon_disc.material_override = mm
+	_moon_disc.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_moon_disc.visible = false
+	_rig.add_child(_moon_disc)
+
+
+## Place the sun glow at the (pre-yaw, fixed-frame) sun direction and the moon
+## opposite it; the rig basis applies -yaw so both land at the right apparent
+## spot. Visibility cross-fades with daylight.
+func _update_billboards(sun_world: Vector3) -> void:
+	if _sun_halo != null:
+		_sun_halo.position = sun_world * celestial_distance
+		_sun_halo.visible = _daylight > 0.02
+		var sm := _sun_halo.material_override as StandardMaterial3D
+		if sm != null:
+			sm.emission_energy_multiplier = lerpf(1.5, 6.0, _daylight)
+	if _moon_disc != null:
+		_moon_disc.position = -sun_world * celestial_distance
+		# Visible through night + twilight, faded out by full day.
+		_moon_disc.visible = _daylight < 0.85
+		var mm := _moon_disc.material_override as StandardMaterial3D
+		if mm != null:
+			var a := clampf(1.0 - smoothstep(0.45, 0.85, _daylight), 0.0, 1.0)
+			mm.albedo_color = Color(1.0, 1.0, 1.0, a)
+
+
 ## Resolve and cache the ship (authority-independent group lookup).
 func _resolve_ship() -> void:
 	if _ship == null or not is_instance_valid(_ship):
@@ -162,6 +297,7 @@ func _process(_delta: float) -> void:
 	_orient_lights(sun_dir)
 	_update_lighting()
 	_update_rig(sky_rot)
+	_update_billboards(sun_world)
 
 
 ## Point the sun (and the anti-solar moon) along the apparent directions.
@@ -214,6 +350,9 @@ func _update_lighting() -> void:
 		var night_fog := Color(0.10, 0.13, 0.22)
 		var day_fog := Color(0.62, 0.70, 0.80)
 		_env.fog_light_color = night_fog.lerp(day_fog, d)
+		# Strong bloom under the noon sun, almost none at night (otherwise the
+		# moon/stars smear).
+		_env.glow_intensity = lerpf(0.08, glow_day_intensity, d)
 
 	if _sky_mat != null:
 		var dusk_top := Color(0.12, 0.13, 0.26)

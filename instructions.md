@@ -256,7 +256,16 @@ grows (they read as if at infinity = a true bearing). At night the Pole
 Star (fixed to world-North) is the compass; a dim Moon light + raised
 ambient keep the dunes readable (Forward+ has no GI here). Energy/colour of
 sun, moon, ambient, sky and fog are hand-authored ramps keyed on a smoothed
-`daylight` factor. Public API: `get_time_of_day()`, `get_daylight()`,
+`daylight` factor.
+
+Visuals are procedural (no asset files, per project ethos): a sun-glow and
+moon billboard ride the same rig (camera-facing quads with code-generated
+radial `GradientTexture2D`s — sun additive so it blooms, moon a crisper
+emissive disc). The "too bright to look at" sun is sold by HDR `glow`
+(ramped with daylight), a filmic tonemap, and optional auto-exposure
+(`use_auto_exposure`) on the WorldEnvironment's camera attributes — not by a
+texture. Tunable exports: disc angular sizes, `celestial_distance`,
+`glow_day_intensity`. Public API: `get_time_of_day()`, `get_daylight()`,
 `is_night()`, `get_phase_name()`.
 
 **WeatherSystem** (`weather_system.gd`, under WorldMap, **must process
