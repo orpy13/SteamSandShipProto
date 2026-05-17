@@ -49,6 +49,11 @@ func host_game(player_name: String, port: int = DEFAULT_PORT) -> void:
 	players[1] = {"name": player_name}
 	current_helmsman = 0
 	current_gunner = 0
+	# Stamp the shared world clock + weather seed at session start. Every peer
+	# derives day/night and storms deterministically from these (no per-frame
+	# sync); joining clients receive them in _on_peer_connected.
+	GameState.world_epoch = Time.get_unix_time_from_system()
+	GameState.weather_seed = randi()
 	server_started.emit()
 	player_list_changed.emit(players)
 	helmsman_changed.emit(0)
@@ -93,6 +98,7 @@ func disconnect_game() -> void:
 func _on_peer_connected(peer_id: int) -> void:
 	if multiplayer.is_server():
 		update_player_list.rpc_id(peer_id, players)
+		notify_world_clock.rpc_id(peer_id, GameState.world_epoch, GameState.weather_seed)
 		notify_helmsman_changed.rpc_id(peer_id, current_helmsman)
 		notify_gunner_changed.rpc_id(peer_id, current_gunner)
 		for existing_id in players.keys():
@@ -180,6 +186,15 @@ func spawn_player_for_peer(peer_id: int) -> void:
 			(p as Node3D).global_transform = marker.global_transform
 	if p.has_method("apply_peer_visuals"):
 		p.apply_peer_visuals(peer_id)
+
+
+## Host → client: hand over the shared world clock so the joining peer's
+## day/night cycle and storm schedule line up with everyone else's. Sent once
+## during the connection handshake; thereafter each peer computes locally.
+@rpc("authority", "reliable")
+func notify_world_clock(epoch: float, seed_value: int) -> void:
+	GameState.world_epoch = epoch
+	GameState.weather_seed = seed_value
 
 
 ## Broadcast: a new peer has the helm. Every peer updates its local cache so

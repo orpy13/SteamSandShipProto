@@ -24,6 +24,9 @@ const CANNONBALL_SCENE: PackedScene = preload("res://scenes/projectiles/cannonba
 @export var min_player_speed: float = 2.0    # ship must be moving above this (m/s)
 @export var spawn_distance: float = 260.0    # spawn well outside ai_ship.engage_distance so they steam in
 @export var spawn_lateral_jitter: float = 60.0  # left/right scatter at spawn
+# Sandstorms favour raiders — at full storm intensity the per-roll chance is
+# multiplied by (1 + this). Bandits use the murk as cover.
+@export var storm_spawn_boost: float = 1.5
 
 # ── Internal state (host only) ──────────────────────────────────────────────
 var _current_bandit: Node = null             # one-at-a-time guard
@@ -50,7 +53,11 @@ func _process(delta: float) -> void:
 	if _check_timer < check_interval:
 		return
 	_check_timer = 0.0
-	if randf() > spawn_chance:
+	var eff_chance := spawn_chance
+	var weather := get_tree().get_first_node_in_group("weather")
+	if weather != null and weather.has_method("get_storm_intensity"):
+		eff_chance *= 1.0 + storm_spawn_boost * float(weather.get_storm_intensity())
+	if randf() > eff_chance:
 		return
 	var player := get_tree().get_first_node_in_group("ship")
 	if player == null:

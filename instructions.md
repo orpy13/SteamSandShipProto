@@ -224,6 +224,63 @@ reads `ship.cargo` directly — no need to physically haul crates back.
 
 ---
 
+## Day/night & weather
+
+**Renderer**: the project runs **Forward+** (`rendering_method` and
+`.mobile` both `forward_plus`) so volumetric fog and proper sky/light control
+are available. No mobile/web target.
+
+**Shared clock**: `GameState.world_epoch` (Unix timestamp) + `weather_seed`
+are stamped by the host in `host_game` and replicated **once** to each
+joining peer via `NetworkManager.notify_world_clock` (sent in
+`_on_peer_connected`). `GameState.world_time()` returns seconds since the
+epoch (falls back to a process-local clock solo/in-editor). Day/night and
+storms are then computed **deterministically and locally on every peer** —
+no per-frame replication. Assumes roughly synced wall clocks (LAN co-op);
+a host-correction RPC can be added later if drift shows.
+
+**DayNightCycle** (`day_night_cycle.gd`, under WorldMap). ~40-min cycle
+(`day_length_seconds`, tunable). It does **not** spawn its own rig — it
+finds and drives the existing `main.tscn` `WorldEnvironment` +
+`DirectionalLight3D`, plus a code-built Moon light and a Pole Star marker.
+
+Navigational relevance is the whole point: the sun/star direction is
+computed in a **fixed world frame** (`+X`=East, `-X`=West, `+Z`=North,
+`-Z`=South, `+Y`=up) and then rotated by `Basis(UP, -ship.virtual_yaw)` —
+the *same inverse rotation ChunkManager applies to the dunes*. So the sun
+sweeps across the sky in lock-step with the terrain as you steer; hold a
+heading by keeping it at a constant screen angle. The Moon/PoleStar rig is
+`top_level` and re-pinned to the ship's scene position every frame, then
+only rotated, so finite-distance markers don't parallax as `world_offset`
+grows (they read as if at infinity = a true bearing). At night the Pole
+Star (fixed to world-North) is the compass; a dim Moon light + raised
+ambient keep the dunes readable (Forward+ has no GI here). Energy/colour of
+sun, moon, ambient, sky and fog are hand-authored ramps keyed on a smoothed
+`daylight` factor. Public API: `get_time_of_day()`, `get_daylight()`,
+`is_night()`, `get_phase_name()`.
+
+**WeatherSystem** (`weather_system.gd`, under WorldMap, **must process
+after DayNightCycle** — child order in `world_map.tscn` enforces this; it
+reads the fog colour the cycle just set and lerps toward ochre so the two
+compose). Sandstorms are **localized**: each storm has a centre in
+`world_offset` space, a radius, and a time window, all a pure function of
+`weather_seed` + the period index. The `FogVolume` is a child of this node
+(hence of WorldMap) positioned at the storm's **world coordinates** — the
+same convention chunk bodies use — so the world-scroll trick keeps the
+storm fixed in the dunes while the ship sails through it, for free. The
+centre is latched once from the live (replicated, deterministic)
+`ship.world_offset` when a storm first goes active, so storms fall along
+the crew's route (same idea as bandit_director). Three layers:
+`Environment` depth fog (ochre distance tint), volumetric fog + the
+`FogVolume` (the visible body), and a `GPUParticles3D` grit emitter pinned
+to the ship. Intensity (0..1) = distance-to-centre × time-ramp. Gameplay
+hooks: `bandit_director` multiplies spawn chance by storm intensity
+(`storm_spawn_boost`), `ai_ship_controller` holds fire in a heavy whiteout
+(intensity > 0.6), and the HUD heading line shows the sky phase + a
+`SANDSTORM` warning. Public API: `get_storm_intensity()`, `is_storming()`.
+
+---
+
 ## Chunk system & bespoke editor
 
 `chunk_manager.gd` streams `chunk_size` tiles within `load_radius`. All
@@ -267,6 +324,7 @@ must match `ChunkManager`'s exports or previews diverge.
 | `PlayerContainer/<peer_id>` | The peer themselves        | position/rotation (synchronizer in player.tscn); `carried_item_type` via RPC |
 | Interactables, gangway      | Host                       | side-effects RPC'd from `interact()` / reparent RPCs |
 | `chunk_manager.gd`          | All peers (same noise seed)| — |
+| `DayNightCycle` / `WeatherSystem` | All peers (deterministic from shared epoch+seed) | — (epoch+seed sent once via `notify_world_clock`) |
 
 Roles are tracked on the `NetworkManager` autoload (`current_helmsman`,
 `current_gunner`) and broadcast via `notify_helmsman_changed` /
@@ -336,6 +394,15 @@ Context-sensitive remapping (player_controller):
 14. Closing the client cleanly removes that player (and releases their roles)
     on the host, and vice-versa.
 15. No errors in the Godot output panel on launch.
+16. Sun rises, arcs, and sets; turning the ship sweeps the sun across the sky
+    in lock-step with the dunes (it works as a compass). HUD heading line
+    shows the sky phase.
+17. Both peers see the same time of day and the same sky (deterministic from
+    the shared epoch), including a client that joins mid-session.
+18. A sandstorm rolls in: ochre haze + volumetric body + deck grit. It stays
+    fixed in the dunes — sail out one side and back in. HUD shows `SANDSTORM`.
+19. Storm raises bandit spawn rate; in a heavy whiteout the bandit holds fire.
+    At night the Pole Star marks world-North as a bearing reference.
 
 ---
 
@@ -390,3 +457,20 @@ Context-sensitive remapping (player_controller):
   `Goods.PRICES` for every oasis type. The trade panel, crate visuals, and
   cargo helpers pick it up automatically; add the key to
   `ship_controller.cargo` so it can be stowed/sold.
+
+**Day/night or weather changes**
+
+- Keep the system deterministic from `GameState.world_time()` +
+  `weather_seed`. Never add per-frame replication — if a value must be
+  shared, send it once like `notify_world_clock`. Anything random must seed
+  from `weather_seed` so all peers agree.
+- Anything that should act as a navigation reference must be computed in the
+  fixed world frame and rotated by `Basis(UP, -ship.virtual_yaw)` (mirror
+  ChunkManager) and pinned to the ship (not parented into WorldMap's scroll)
+  so it doesn't parallax.
+- A storm element that should stay put in the dunes goes under WorldMap with
+  its local position set to world coordinates (chunk-body convention).
+- `WeatherSystem` must process *after* `DayNightCycle` (it composes onto the
+  env fog colour) — preserve the `world_map.tscn` child order.
+- New systems that react to weather/time should group-lookup `"day_night"` /
+  `"weather"` and call the public API, not reach into internals.

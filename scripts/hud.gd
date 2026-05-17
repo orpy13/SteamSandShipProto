@@ -76,7 +76,18 @@ func _update_heading(ship: Node) -> void:
 	if heading < 0.0:
 		heading += 360.0
 	var deg := int(heading)
-	_heading_label.text = "HDG: %03d° %s" % [deg, _cardinal(deg)]
+	var line := "HDG: %03d° %s" % [deg, _cardinal(deg)]
+	# Append sky phase and a storm warning. Kept on the heading line so no HUD
+	# scene change is needed and the navigational info stays grouped.
+	var sky := get_tree().get_first_node_in_group("day_night")
+	if sky != null and sky.has_method("get_phase_name"):
+		line += "  ·  " + String(sky.get_phase_name())
+	var weather := get_tree().get_first_node_in_group("weather")
+	if weather != null and weather.has_method("get_storm_intensity"):
+		var si := float(weather.get_storm_intensity())
+		if si > 0.15:
+			line += "  ·  SANDSTORM" + (" (heavy)" if si > 0.6 else "")
+	_heading_label.text = line
 
 
 ## Show the ship's virtual position in the dunes (NOT scene-graph position —

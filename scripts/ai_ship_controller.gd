@@ -274,12 +274,15 @@ func _simulate(delta: float) -> void:
 	current_speed = clampf(current_speed, -eff_max_speed, eff_max_speed)
 	_integrate(delta)
 
-	# Fire if we're in pace and the timer says so.
+	# Fire if we're in pace and the timer says so — but not in a whiteout: a
+	# heavy sandstorm blinds the bandit's gun crew too (and it would be unfair
+	# to be shelled by something you can't see to shoot back at).
 	if state == STATE_PACE:
 		_fire_timer -= delta
 		if _fire_timer <= 0.0:
 			_fire_timer = fire_interval
-			_fire_cannon(player_offset)
+			if _storm_intensity() < 0.6:
+				_fire_cannon(player_offset)
 
 
 ## Rotate toward the desired heading. If we're not yet in PACE we just point
@@ -419,3 +422,13 @@ func _get_player_ship() -> Node:
 
 func _get_bandit_director() -> Node:
 	return get_tree().get_first_node_in_group("bandit_director")
+
+
+## Current sandstorm intensity at the ship (0 clear .. 1 whiteout), or 0 if the
+## weather system isn't present. Server-only path, so a plain group lookup is
+## fine (no replication needed — intensity is deterministic everywhere).
+func _storm_intensity() -> float:
+	var weather := get_tree().get_first_node_in_group("weather")
+	if weather != null and weather.has_method("get_storm_intensity"):
+		return float(weather.get_storm_intensity())
+	return 0.0
