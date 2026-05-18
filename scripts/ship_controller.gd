@@ -106,6 +106,11 @@ var cargo: Dictionary = {
 	"coal":  0,
 	"water": 0,
 	"spice": 0,
+	# Tier 1 provisions / supplies (ROADMAP.md → T1.1). Held like any cargo;
+	# also consumed by the boiler bunker / repair points / crew needs.
+	"repair_kit": 0,
+	"food": 0,
+	"drinking_water": 0,
 }
 
 var system_integrity: Dictionary = {

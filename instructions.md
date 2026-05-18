@@ -224,7 +224,11 @@ from scene nodes (`BoilerFirebox`, `BridgeHouse`, `CargoHold`) with const
 fallbacks. Damage/repair broadcast via sender-validated RPCs; HUD shows a
 9-value readout; `damage_taken` drives per-peer screen shake.
 
-**Bandits** (`ai_ship_controller.gd` + `bandit_director.gd`): host-only
+**Bandits** (`ai_ship_controller.gd` + `bandit_director.gd`): **parked for
+Tier 1** — `bandit_director.spawn_enabled` defaults `false`, so no raiders
+spawn (the combat/AI system is slated for an overhaul; see ROADMAP.md →
+T1.0). The machinery below is intact and the cannonball spawn/despawn RPC
+hub is still used by the player deck gun. When enabled, the host-only
 director rolls on a timer to spawn one bandit at a time *behind* a moving
 player. The bandit shares the `world_offset`/`virtual_yaw` model, lives
 under WorldMap, and runs a two-state machine: **APPROACH** (drive straight
@@ -239,11 +243,16 @@ external, so every hit is a direct hit and there is no penetration cone
 
 ## Economy & trade
 
-`Goods` (`goods.gd`) is a static registry: three goods (`coal`, `water`,
-`spice`), each with display name, `carry_id` (`cargo_<good>`), and tint.
-Prices are per **oasis type** (`mining` vs `caravan`); buy > sell at every
-oasis, so profit comes only from inter-oasis arbitrage (mining sells coal
-cheap / pays for spice; caravan is the inverse).
+`Goods` (`goods.gd`) is a static registry: tradeable goods (`coal`,
+`water`, `spice`) plus Tier 1 provisions/supplies (`repair_kit`, `food`,
+`drinking_water`) — each with display name, `carry_id` (`cargo_<good>`),
+and tint. All six move through the *same* market / cargo-crate / hold
+pipeline (and `ship_controller.cargo` has a key for each); the provisions
+are also *consumable* (kits repair ship parts, food/drinking water satisfy
+crew needs — see ROADMAP.md T1.4/T1.5). Prices are per **oasis type**
+(`mining` vs `caravan`); buy > sell at every oasis, so profit comes only
+from inter-oasis arbitrage (mining sells coal cheap / pays for spice;
+caravan is the inverse).
 
 Ship economy state lives on `ship_controller.gd`: `money` and a `cargo`
 dict, `cargo_capacity` crates total. All mutations go through host-only

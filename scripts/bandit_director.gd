@@ -19,6 +19,11 @@ const AI_SHIP_SCENE: PackedScene = preload("res://scenes/ship/ai_ship.tscn")
 const CANNONBALL_SCENE: PackedScene = preload("res://scenes/projectiles/cannonball.tscn")
 
 # ── Spawn pacing ─────────────────────────────────────────────────────────────
+# PARKED for Tier 1 (see ROADMAP.md → T1.0). The combat/AI system needs a real
+# overhaul to be fun, so spawning is disabled by default. All the machinery
+# below — including the cannonball spawn/despawn RPC hub still used by the
+# deck gun — stays intact; only the spawn roll is gated off.
+@export var spawn_enabled: bool = false
 @export var check_interval: float = 4.0      # seconds between spawn rolls
 @export var spawn_chance: float = 0.35       # probability per roll
 @export var min_player_speed: float = 2.0    # ship must be moving above this (m/s)
@@ -44,6 +49,8 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if not multiplayer.is_server():
 		return
+	if not spawn_enabled:
+		return  # parked for Tier 1 — see ROADMAP.md
 	# Validate the cached bandit reference — it may have been freed.
 	if _current_bandit != null and not is_instance_valid(_current_bandit):
 		_current_bandit = null

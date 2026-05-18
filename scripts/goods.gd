@@ -29,6 +29,25 @@ const ALL: Dictionary = {
 		"carry_id": "cargo_spice",
 		"color": Color(0.85, 0.45, 0.15, 1),
 	},
+	# ── Tier 1 provisions / supplies (see ROADMAP.md → T1.1) ────────────────
+	# Just goods like any other: bought/sold at oasis markets, held in the
+	# hold, but also *consumable* — kits repair ship parts, food/drinking
+	# water satisfy crew needs. One generic food for now.
+	"repair_kit": {
+		"display_name": "Repair Kit",
+		"carry_id": "cargo_repair_kit",
+		"color": Color(0.45, 0.30, 0.15, 1),
+	},
+	"food": {
+		"display_name": "Rations",
+		"carry_id": "cargo_food",
+		"color": Color(0.55, 0.45, 0.25, 1),
+	},
+	"drinking_water": {
+		"display_name": "Drinking Water",
+		"carry_id": "cargo_drinking_water",
+		"color": Color(0.35, 0.65, 0.80, 1),
+	},
 }
 
 const PRICES: Dictionary = {
@@ -36,11 +55,17 @@ const PRICES: Dictionary = {
 		"coal":  { "buy": 8,  "sell": 6 },
 		"water": { "buy": 14, "sell": 10 },
 		"spice": { "buy": 30, "sell": 25 },
+		"repair_kit":     { "buy": 40, "sell": 30 },
+		"food":           { "buy": 12, "sell": 8 },
+		"drinking_water": { "buy": 10, "sell": 7 },
 	},
 	"caravan": {
 		"coal":  { "buy": 20, "sell": 15 },
 		"water": { "buy": 8,  "sell": 6 },
 		"spice": { "buy": 15, "sell": 10 },
+		"repair_kit":     { "buy": 35, "sell": 26 },
+		"food":           { "buy": 9,  "sell": 6 },
+		"drinking_water": { "buy": 14, "sell": 10 },
 	},
 }
 
