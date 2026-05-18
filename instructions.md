@@ -77,7 +77,7 @@ res://
 │   ├── player/player.tscn                     # CharacterBody3D + camera + interact ray + carry socket
 │   ├── interactables/
 │   │   ├── helm.tscn  coal_bunker.tscn  boiler_firebox.tscn  water_tower.tscn
-│   │   ├── water_tank.tscn  deck_gun.tscn  ammo_magazine.tscn  workshop.tscn
+│   │   ├── water_tank.tscn  repair_point.tscn  deck_gun.tscn  ammo_magazine.tscn  workshop.tscn
 │   │   ├── oasis_market.tscn  cargo_hold_deposit.tscn  gangway.tscn
 │   └── ui/
 │       ├── hud.tscn  lobby.tscn  name_tag.tscn
@@ -100,6 +100,7 @@ res://
     ├── interactable.gd                        # Base Area3D class
     └── interactables/
         ├── helm.gd  coal_bunker.gd  water_tank.gd  boiler_firebox.gd  water_tower.gd
+        ├── repair_point.gd  workshop.gd (kit repository)
         ├── deck_gun.gd  ammo_magazine.gd  workshop.gd
         ├── oasis_market.gd  cargo_hold_deposit.gd  gangway.gd
 ```
@@ -240,6 +241,15 @@ fallbacks. Damage/repair broadcast via sender-validated RPCs; HUD shows a
 speed. Wear accumulates and flushes through `_apply_damage` in discrete
 `wear_apply_step` chunks (low RPC cadence). The existing performance
 penalties give it immediate teeth; tuning lives in the `*_wear_*` exports.
+
+**Repair (Tier 1, T1.4).** Repair is now *spatial*. `workshop.gd` is a
+**kit repository** (mirrors the coal bunker: take a `cargo_repair_kit`, or
+batch-load the store from hold cargo); it no longer repairs. Three
+`repair_point.gd` interactables (`RepairPower`/`RepairControl`/
+`RepairMobility` in ship.tscn, `target_system` overridden per instance) sit
+at the boiler / bridge / wheels — carry a kit there and E consumes it to
+`ship.repair_system(target_system, repair_amount)`. Kits are ordinary cargo
+(bought at markets, T1.1), so repair draws on the economy.
 
 **Bandits** (`ai_ship_controller.gd` + `bandit_director.gd`): **parked for
 Tier 1** — `bandit_director.spawn_enabled` defaults `false`, so no raiders

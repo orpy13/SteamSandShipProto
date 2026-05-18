@@ -1,99 +1,81 @@
 extends Interactable
 ##
-## WORKSHOP — source of repair kits AND the place you apply them.
+## WORKSHOP — repair-kit repository (Tier 1, ROADMAP.md → T1.4).
 ##
-## Dual-mode interaction (same pattern the DeckGun uses for load vs. man):
-##   • Empty-handed → take a repair kit (carry-item, mirrors coal_bunker).
-##   • Carrying a kit → consume the kit, repair the ship's most-damaged system
-##     by `repair_amount`. The "most-damaged system" auto-selects so the crew
-##     doesn't have to micromanage which face to patch.
+## No longer repairs anything itself — repairs happen at the damaged part
+## (see `repair_point.gd`). This is just a store of kits: take one to carry,
+## or (when empty) batch-load it from the hold's `repair_kit` cargo. Mirrors
+## the coal-bunker pattern exactly.
 ##
-## Infinite kit supply for the prototype; a future economy pass can make kits
-## scarce or tied to oasis stops.
+## Carried id is `cargo_repair_kit` (same as a kit crate from a market), so it
+## uses the generic cargo carry visual and a RepairPoint accepts it directly.
 ##
 
-@export var repair_amount: float = 0.4  # one kit restores this much integrity to one system
+@export var workshop_capacity: int = 6
+
+# Server-authoritative, replicated for prompts via _set_workshop_kits.
+var workshop_kits: int = 0
 
 
 func _ready() -> void:
-	prompt_text = "Press E at workshop"
+	prompt_text = "Press E to take repair kit"
+	workshop_kits = workshop_capacity
 
 
-## Contextual prompt — depends on whether the player is carrying a kit and on
-## the ship's current damage state.
-func get_prompt(player: Node) -> String:
-	var has_kit: bool = player != null and player.has_method("is_carrying_item") \
-			and bool(player.call("is_carrying_item", "repair_kit"))
-	if has_kit:
-		var ship := get_tree().get_first_node_in_group("ship")
-		var worst := _find_most_damaged(ship)
-		if worst.is_empty():
-			return "Ship undamaged"
-		var pct := int(round(_get_integrity(ship, worst) * 100.0))
-		return "Press E to repair %s (%d%%)" % [_pretty_name(worst), pct]
-	return "Press E to take repair kit"
+## Context-aware prompt: take vs. load vs. dry.
+func get_prompt(_player: Node) -> String:
+	if workshop_kits > 0:
+		return "Press E to take repair kit (store: %d)" % workshop_kits
+	var hold := _hold_kits()
+	if hold > 0:
+		return "Press E to load kits from hold (%d in hold)" % hold
+	return "No repair kits in store or hold"
 
 
-## Server-only. Two branches:
-##   1. Carrying a kit → consume it, heal the most-damaged system on the ship.
-##   2. Empty-handed → hand the player a kit (if their hands are free).
+## Server-only. Dispense one kit if stocked, else batch-load from cargo.
 func interact(peer_id: int) -> void:
 	if not multiplayer.is_server():
 		return
+
+	if workshop_kits <= 0:
+		_load_from_hold()
+		return
+
 	var player := _find_player(peer_id)
-	if player == null:
-		return
-
-	var has_kit: bool = player.has_method("is_carrying_item") and bool(player.call("is_carrying_item", "repair_kit"))
-	if has_kit:
-		var ship := get_tree().get_first_node_in_group("ship")
-		var worst := _find_most_damaged(ship)
-		if worst.is_empty():
-			return  # nothing to repair — keep the kit in hand
-		if ship == null or not ship.has_method("repair_system"):
-			return
-		super(peer_id)
-		ship.repair_system(worst, repair_amount)
-		player.rpc("set_carried_item", "")
-		return
-
-	# Empty-handed: take a kit if the player has free hands.
-	if not player.has_method("can_carry_item") or not bool(player.call("can_carry_item")):
+	if player == null or not player.has_method("can_carry_item") or not bool(player.call("can_carry_item")):
 		return
 	super(peer_id)
-	player.rpc("set_carried_item", "repair_kit")
+	workshop_kits -= 1
+	_set_workshop_kits.rpc(workshop_kits)
+	player.rpc("set_carried_item", "cargo_repair_kit")
 
 
-## Scan the ship's system_integrity dict, return the key with the lowest value.
-## Empty string if everything is at 1.0 (fully repaired).
-func _find_most_damaged(ship: Node) -> String:
-	if ship == null or not "system_integrity" in ship:
-		return ""
-	var worst := ""
-	var worst_value := 1.0
-	for key in ship.system_integrity.keys():
-		var val := float(ship.system_integrity[key])
-		if val < worst_value:
-			worst_value = val
-			worst = String(key)
-	if worst_value >= 1.0:
-		return ""
-	return worst
+## Pull as many kits as the store can hold out of the hold, in one action.
+func _load_from_hold() -> void:
+	var ship := get_tree().get_first_node_in_group("ship")
+	if ship == null or not ship.has_method("remove_cargo"):
+		return
+	var move: int = mini(workshop_capacity - workshop_kits, _hold_kits())
+	if move <= 0:
+		return
+	if not ship.remove_cargo("repair_kit", move):
+		return
+	workshop_kits += move
+	_set_workshop_kits.rpc(workshop_kits)
 
 
-## Look up the integrity of a single system on the ship, with a 1.0 fallback.
-func _get_integrity(ship: Node, system: String) -> float:
-	if ship == null or not "system_integrity" in ship:
-		return 1.0
-	return float(ship.system_integrity.get(system, 1.0))
+@rpc("authority", "call_local", "reliable")
+func _set_workshop_kits(n: int) -> void:
+	workshop_kits = n
 
 
-## Pretty-print a system key like "hull_left" → "Hull left" for the prompt.
-func _pretty_name(system: String) -> String:
-	return system.replace("_", " ").capitalize()
+func _hold_kits() -> int:
+	var ship := get_tree().get_first_node_in_group("ship")
+	if ship == null or not "cargo" in ship:
+		return 0
+	return int(ship.cargo.get("repair_kit", 0))
 
 
-## Player node lookup — same pattern the other interactables use.
 func _find_player(peer_id: int) -> Node:
 	var ship := get_tree().get_first_node_in_group("ship")
 	if ship == null:
