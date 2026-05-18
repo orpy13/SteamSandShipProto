@@ -10,6 +10,7 @@
 [ext_resource type="PackedScene" path="res://scenes/interactables/workshop.tscn" id="8"]
 [ext_resource type="PackedScene" path="res://scenes/interactables/cargo_hold_deposit.tscn" id="9"]
 [ext_resource type="PackedScene" path="res://scenes/interactables/gangway.tscn" id="10"]
+[ext_resource type="PackedScene" path="res://scenes/interactables/water_tank.tscn" id="11"]
 
 [sub_resource type="BoxShape3D" id="HullShape"]
 size = Vector3(20, 0.8798828, 60)
@@ -242,6 +243,9 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.1, 4)
 
 [node name="Gangway" parent="." instance=ExtResource("10")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 2.5, 0)
+
+[node name="WaterTank" parent="." instance=ExtResource("11")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0.5, -14)
 
 [node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="." unique_id=759977759]
 replication_config = SubResource("SceneReplicationConfig_1")

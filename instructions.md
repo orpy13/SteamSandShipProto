@@ -77,7 +77,7 @@ res://
 │   ├── player/player.tscn                     # CharacterBody3D + camera + interact ray + carry socket
 │   ├── interactables/
 │   │   ├── helm.tscn  coal_bunker.tscn  boiler_firebox.tscn  water_tower.tscn
-│   │   ├── deck_gun.tscn  ammo_magazine.tscn  workshop.tscn
+│   │   ├── water_tank.tscn  deck_gun.tscn  ammo_magazine.tscn  workshop.tscn
 │   │   ├── oasis_market.tscn  cargo_hold_deposit.tscn  gangway.tscn
 │   └── ui/
 │       ├── hud.tscn  lobby.tscn  name_tag.tscn
@@ -99,7 +99,7 @@ res://
     ├── chunk_authoring.gd                     # ChunkAuthoring — editor-side save/register helpers
     ├── interactable.gd                        # Base Area3D class
     └── interactables/
-        ├── helm.gd  coal_bunker.gd  boiler_firebox.gd  water_tower.gd
+        ├── helm.gd  coal_bunker.gd  water_tank.gd  boiler_firebox.gd  water_tower.gd
         ├── deck_gun.gd  ammo_magazine.gd  workshop.gd
         ├── oasis_market.gd  cargo_hold_deposit.gd  gangway.gd
 ```
@@ -183,6 +183,15 @@ disproportionately hungry). Boiler **power-system damage** scales pressure
 and water leak rates up to 3× — a wrecked boiler has far less range on the
 same coal/water until repaired. Host-only sim; clients get
 delta-thresholded `_receive_state` RPCs.
+
+**Fuelling (Tier 1, T1.2).** The **coal bunker** (`coal_bunker.gd`) is now a
+finite store: a stoker draws one load at a time (decrementing
+`bunker_coal`, replicated for prompts); when empty, an explicit E *loads*
+it in one batch from `ship.cargo["coal"]`. The new **water tank**
+(`water_tank.gd`, `WaterTank` in ship.tscn) feeds the boiler reservoir from
+`ship.cargo["water"]` (each cargo unit = `water_per_unit` boiler water);
+desert water towers still top it up directly for free. Empty bunker + empty
+hold → no fuel → the ship strands (T1.6 — not a game-over).
 
 ---
 
