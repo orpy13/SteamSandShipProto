@@ -29,6 +29,8 @@ var _ship: CharacterBody3D = null
 # Path of the player node we're currently subscribed to. Tracked so we don't
 # double-connect to the same signal every frame.
 var _bound_player_path: NodePath = NodePath()
+# Code-built survival readout (T1.7) — avoids editing hud.tscn.
+var _survival_label: Label = null
 # True once we've connected to the ship's system_changed signal.
 var _damage_signal_bound: bool = false
 
@@ -41,7 +43,18 @@ func _ready() -> void:
 	_pressure_bar.max_value = 100.0
 	_on_players_changed(NetworkManager.players)
 	_on_helmsman_changed(NetworkManager.current_helmsman)
+	_build_survival_label()
 	set_process(true)
+
+
+## Bottom-left needs readout, built in code so no hud.tscn change is needed.
+func _build_survival_label() -> void:
+	_survival_label = Label.new()
+	_survival_label.name = "SurvivalLabel"
+	_survival_label.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_survival_label.position = Vector2(16, -64)
+	_survival_label.text = "Hunger -- | Thirst -- | Energy --"
+	add_child(_survival_label)
 
 
 ## Per-frame: refresh ship-derived labels and (re)subscribe to the local
@@ -55,17 +68,27 @@ func _process(_delta: float) -> void:
 	_update_world_pos(ship)
 	_update_engine_order(ship)
 	_update_boiler(ship)
+	# Find the local player whether aboard (PlayerContainer) or disembarked
+	# (reparented under WorldMap by the gangway) — stranded crew still need
+	# their survival readout.
+	var p: Node = null
 	var container: Node = ship.get_node_or_null("PlayerContainer")
-	if container == null:
-		return
-	if container.has_node(str(local_id)):
-		var p := container.get_node(str(local_id))
+	if container != null and container.has_node(str(local_id)):
+		p = container.get_node(str(local_id))
+	else:
+		var wm := get_tree().get_first_node_in_group("terrain")
+		if wm != null and wm.has_node(str(local_id)):
+			p = wm.get_node(str(local_id))
+	if p != null:
 		var path := p.get_path()
 		if path != _bound_player_path:
 			_bound_player_path = path
 			if p.has_signal("interact_prompt_changed") \
 					and not p.interact_prompt_changed.is_connected(_on_prompt_changed):
 				p.interact_prompt_changed.connect(_on_prompt_changed)
+			if p.has_signal("survival_changed") \
+					and not p.survival_changed.is_connected(_on_survival_changed):
+				p.survival_changed.connect(_on_survival_changed)
 
 
 ## Convert virtual_yaw (radians) into a 0–360° compass heading plus cardinal.
@@ -227,3 +250,16 @@ func _on_helmsman_changed(peer_id: int) -> void:
 func _on_prompt_changed(text: String) -> void:
 	_prompt_label.text = text
 	_prompt_label.get_parent().visible = not text.is_empty()
+
+
+## Local crew member's needs (T1.5/T1.7). Red when downed.
+func _on_survival_changed(h: float, t: float, e: float, dead: bool) -> void:
+	if _survival_label == null:
+		return
+	if dead:
+		_survival_label.text = "DOWNED — reach a settlement"
+		_survival_label.modulate = Color(1.0, 0.3, 0.3)
+		return
+	_survival_label.modulate = Color(1, 1, 1)
+	_survival_label.text = "Hunger %d | Thirst %d | Energy %d" % [
+		int(round(h)), int(round(t)), int(round(e))]

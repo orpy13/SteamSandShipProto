@@ -19,11 +19,35 @@ extends CharacterBody3D
 ##
 
 signal interact_prompt_changed(text: String)
+## Local-only: HUD subscribes to draw this crew member's needs (T1.7).
+signal survival_changed(hunger: float, thirst: float, energy: float, dead: bool)
 
 @export var MOVEMENT_SPEED: float = 5.0
 @export var JUMP_VELOCITY: float = 4.5
 @export var MOUSE_SENSITIVITY: float = 0.002
 @export var GRAVITY: float = 12.0
+
+# ── Survival (Tier 1, ROADMAP.md → T1.5) ─────────────────────────────────────
+# Per-player, simulated on the player's own authority. Stats 0..100. Drain
+# scales with activity and the environment (midday sun + sandstorm + being off
+# the ship in the open desert). hunger or thirst hitting 0 = dead (frozen);
+# revival happens when the ship reaches a settlement (any market trade).
+@export var hunger_drain: float = 0.45          # per second, baseline
+@export var thirst_drain: float = 0.65          # per second, baseline
+@export var energy_drain_idle: float = 0.20     # per second at rest
+@export var energy_drain_active: float = 0.85   # per second moving / carrying
+@export var energy_regen_fed: float = 0.6       # per second resting & well-fed
+@export var heat_thirst_mult: float = 1.8       # ×thirst at full daylight
+@export var storm_thirst_mult: float = 1.6      # ×thirst at full sandstorm
+@export var exposed_drain_mult: float = 2.2     # ×hunger/thirst when off-ship in the dunes
+@export var low_energy_speed_floor: float = 0.45 # movement multiplier at 0 energy
+@export var food_restore: float = 55.0          # hunger per ration eaten (+ a little energy)
+@export var water_restore: float = 60.0         # thirst per drinking-water consumed
+
+var hunger: float = 100.0
+var thirst: float = 100.0
+var energy: float = 100.0
+var is_dead: bool = false
 
 # Distinct capsule colours so each peer is visually identifiable on deck.
 const PEER_COLORS: Array[Color] = [
@@ -237,6 +261,14 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if not is_multiplayer_authority():
 		return
+	_tick_survival(delta)
+	if is_dead:
+		# Frozen until the crew reaches a settlement (any market trade).
+		velocity = Vector3.ZERO
+		if not is_on_floor():
+			velocity.y -= GRAVITY * delta
+		move_and_slide()
+		return
 	if _is_gunner:
 		# Locked at the gun seat. Re-snap each tick because the ship's terrain
 		# pitch/roll would otherwise shake us off the marker. Aim/fire/release
@@ -270,8 +302,10 @@ func _physics_process(delta: float) -> void:
 	var move := cam_right * input_dir.x - cam_forward * input_dir.y
 	if move.length() > 1.0:
 		move = move.normalized()
-	velocity.x = move.x * MOVEMENT_SPEED
-	velocity.z = move.z * MOVEMENT_SPEED
+	# Low energy saps your pace (never below low_energy_speed_floor).
+	var spd := MOVEMENT_SPEED * lerpf(low_energy_speed_floor, 1.0, clampf(energy / 100.0, 0.0, 1.0))
+	velocity.x = move.x * spd
+	velocity.z = move.z * spd
 	if is_on_floor():
 		if Input.is_action_just_pressed("jump"):
 			velocity.y = JUMP_VELOCITY
@@ -318,6 +352,9 @@ func _poll_interact() -> void:
 				panel.open_for_market(_current_interactable)
 			return
 		_request_interact.rpc_id(1, _current_interactable.get_path())
+	elif Input.is_action_just_pressed("interact") and _current_interactable == null:
+		# Not aimed at anything — E eats/drinks a carried ration / water.
+		_try_consume_carried()
 
 
 ## Emit only when the prompt text actually changes, so HUD listeners aren't
@@ -505,3 +542,109 @@ func is_carrying_cargo() -> bool:
 ## empty / carrying something non-cargo.
 func get_carried_cargo_good() -> String:
 	return Goods.good_from_carry_id(carried_item_type)
+
+
+# ── Survival (Tier 1, T1.5) ──────────────────────────────────────────────────
+
+## Per-frame needs sim. Authority-only (called from _physics_process). Drain
+## scales with activity + environment (midday sun / sandstorm / being off-ship
+## in the open dunes). hunger or thirst at 0 → dead.
+func _tick_survival(delta: float) -> void:
+	if is_dead:
+		return
+
+	var daylight := 0.0
+	var dn := get_tree().get_first_node_in_group("day_night")
+	if dn != null and dn.has_method("get_daylight"):
+		daylight = float(dn.get_daylight())
+	var storm := 0.0
+	var w := get_tree().get_first_node_in_group("weather")
+	if w != null and w.has_method("get_storm_intensity"):
+		storm = float(w.get_storm_intensity())
+	# Off the ship (reparented under WorldMap by the gangway) = exposed.
+	var p := get_parent()
+	var exposed := p != null and p.is_in_group("terrain")
+	var exposure := exposed_drain_mult if exposed else 1.0
+
+	hunger = clampf(hunger - hunger_drain * exposure * delta, 0.0, 100.0)
+	var thirst_rate := thirst_drain * (1.0 + heat_thirst_mult * daylight \
+			+ storm_thirst_mult * storm) * exposure
+	thirst = clampf(thirst - thirst_rate * delta, 0.0, 100.0)
+
+	var active := velocity.length() > 0.5 or not carried_item_type.is_empty()
+	if active:
+		energy = clampf(energy - energy_drain_active * delta, 0.0, 100.0)
+	elif hunger > 20.0 and thirst > 20.0:
+		energy = clampf(energy + energy_regen_fed * delta, 0.0, 100.0)
+	else:
+		energy = clampf(energy - energy_drain_idle * delta, 0.0, 100.0)
+
+	if hunger <= 0.0 or thirst <= 0.0:
+		set_survival_dead.rpc(true)  # call_local applies here too
+	survival_changed.emit(hunger, thirst, energy, is_dead)
+
+
+## E with empty aim eats a carried ration / drinks carried water.
+func _try_consume_carried() -> void:
+	if carried_item_type == "cargo_food":
+		hunger = minf(100.0, hunger + food_restore)
+		energy = minf(100.0, energy + food_restore * 0.3)
+		set_carried_item.rpc("")
+		survival_changed.emit(hunger, thirst, energy, is_dead)
+	elif carried_item_type == "cargo_drinking_water":
+		thirst = minf(100.0, thirst + water_restore)
+		set_carried_item.rpc("")
+		survival_changed.emit(hunger, thirst, energy, is_dead)
+
+
+## Broadcast death so every peer freezes this body and the host can run the
+## all-crew-dead check. Permissive sender (co-op, no anti-cheat need).
+@rpc("any_peer", "call_local", "reliable")
+func set_survival_dead(value: bool) -> void:
+	is_dead = value
+	survival_changed.emit(hunger, thirst, energy, is_dead)
+	if value and multiplayer.is_server():
+		_check_all_dead()
+
+
+## Reaching a settlement (any market trade) revives + re-provisions the crew.
+@rpc("any_peer", "call_local", "reliable")
+func revive_survival() -> void:
+	is_dead = false
+	hunger = maxf(hunger, 50.0)
+	thirst = maxf(thirst, 55.0)
+	energy = maxf(energy, 55.0)
+	survival_changed.emit(hunger, thirst, energy, is_dead)
+
+
+## Server-only: if every crew member is dead the run is over.
+func _check_all_dead() -> void:
+	if not multiplayer.is_server():
+		return
+	var any := false
+	for peer_id in NetworkManager.players.keys():
+		var node := _locate_crew_node(int(peer_id))
+		if node == null or not ("is_dead" in node):
+			continue
+		any = true
+		if not bool(node.is_dead):
+			return  # someone's still standing (or ashore)
+	if any:
+		NetworkManager.report_all_dead()
+
+
+## Find a crew member's body whether aboard (PlayerContainer) or disembarked
+## (reparented under WorldMap). Node name == peer id (NetworkManager).
+static func _locate_crew_node(peer_id: int) -> Node:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return null
+	var ship := tree.get_first_node_in_group("ship")
+	if ship != null:
+		var container := ship.get_node_or_null("PlayerContainer")
+		if container != null and container.has_node(str(peer_id)):
+			return container.get_node(str(peer_id))
+	var wm := tree.get_first_node_in_group("terrain")
+	if wm != null and wm.has_node(str(peer_id)):
+		return wm.get_node(str(peer_id))
+	return null

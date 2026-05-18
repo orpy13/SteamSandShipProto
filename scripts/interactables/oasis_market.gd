@@ -49,6 +49,7 @@ func request_buy(good_id: String, qty: int) -> void:
 		return
 	for i in range(qty):
 		_spawn_crate(good_id, i)
+	_revive_crew()
 
 
 @rpc("any_peer", "call_local", "reliable")
@@ -66,6 +67,23 @@ func request_sell(good_id: String, qty: int) -> void:
 	if not ship.remove_cargo(good_id, qty):
 		return
 	ship.receive_money(sell_price * qty)
+	_revive_crew()
+
+
+## Reaching a settlement and trading patches the crew up (T1.5). Server-only;
+## clears `is_dead` and re-provisions everyone via their replicated RPC.
+func _revive_crew() -> void:
+	var ship := get_tree().get_first_node_in_group("ship")
+	var container: Node = ship.get_node_or_null("PlayerContainer") if ship != null else null
+	var wm := get_tree().get_first_node_in_group("terrain")
+	for peer_id in NetworkManager.players.keys():
+		var node: Node = null
+		if container != null and container.has_node(str(peer_id)):
+			node = container.get_node(str(peer_id))
+		elif wm != null and wm.has_node(str(peer_id)):
+			node = wm.get_node(str(peer_id))
+		if node != null and node.has_method("revive_survival"):
+			node.revive_survival.rpc()
 
 
 ## Spawn a crate at a local-space position in front of the stall. Multiple

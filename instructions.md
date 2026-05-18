@@ -196,6 +196,38 @@ hold → no fuel → the ship strands (T1.6 — not a game-over).
 
 ---
 
+## Crew survival (Tier 1, T1.5)
+
+Per-player `hunger` / `thirst` / `energy` (0–100) on `player_controller.gd`,
+simulated on each player's own authority (`_tick_survival`). Drain scales
+with activity and the **environment** — thirst rises with daylight
+(`day_night.get_daylight`) and sandstorm intensity
+(`weather.get_storm_intensity`), and hunger/thirst drain
+`exposed_drain_mult`× faster when the player is **off-ship** (reparented
+under WorldMap via the gangway — i.e. walking the open dunes). Low `energy`
+scales movement speed down to `low_energy_speed_floor`.
+
+Consumption is item-driven: carry a `cargo_food` / `cargo_drinking_water`
+good (bought at a market like any cargo, T1.1) and press **E with nothing
+targeted** to eat/drink it (`_try_consume_carried`). `hunger` or `thirst`
+at 0 → **dead**: the body freezes (`set_survival_dead` RPC broadcasts it).
+Reaching a settlement and making **any market trade** revives + re-provisions
+the whole crew (`oasis_market._revive_crew` → `revive_survival` RPC). If
+**every** crew member is dead the run ends — the host calls
+`NetworkManager.report_all_dead`, which reuses the connection-failed path to
+drop everyone back to the lobby ("All crew perished in the desert").
+
+**Stranding (T1.6)** is emergent, no special code: an empty bunker + empty
+hold (T1.2) leaves the ship immobile; the crew can disembark and walk for
+supplies, but exposed desert drain makes that desperate. It is *not* a
+ship-level game-over — only crew death ends the run.
+
+HUD: a code-built bottom-left readout (`hud._on_survival_changed`) shows the
+local crew member's needs (red "DOWNED" when dead), bound whether aboard or
+disembarked.
+
+---
+
 ## Combat & damage
 
 **Deck gun** (`deck_gun.gd`, server-authoritative, no authority transfer —
@@ -407,6 +439,7 @@ must match `ChunkManager`'s exports or previews diverge.
 | Interactables, gangway      | Host                       | side-effects RPC'd from `interact()` / reparent RPCs |
 | `chunk_manager.gd`          | All peers (same noise seed)| — |
 | `DayNightCycle` / `WeatherSystem` | All peers (deterministic from shared epoch+seed) | — (epoch+seed sent once via `notify_world_clock`) |
+| Crew survival               | Player's own authority      | needs sim local; `is_dead` via `set_survival_dead`/`revive_survival` RPCs (permissive sender, co-op) |
 
 Roles are tracked on the `NetworkManager` autoload (`current_helmsman`,
 `current_gunner`) and broadcast via `notify_helmsman_changed` /
@@ -489,6 +522,14 @@ Context-sensitive remapping (player_controller):
     descending speeds up past the order. The hull bobs/settles over crests,
     squats under power, dives under braking, and can't turn tightly at speed
     or pivot from a standstill. Behaviour matches on both peers.
+21. No bandits spawn (parked). Coal bunker / repair store deplete and must be
+    batch-loaded from cargo; water tank feeds the boiler from cargo water.
+22. Buy a repair kit, carry it to the boiler/bridge/wheels RepairPoint, E
+    repairs that system; machine wear slowly degrades systems under use.
+23. Hunger/thirst/energy drain (faster in sun/storm/off-ship); eating a
+    carried ration / drinking water (E, no target) restores them; running a
+    need to 0 downs the player; a market trade revives the crew; all dead →
+    back to lobby with a message.
 
 ---
 

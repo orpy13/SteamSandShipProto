@@ -188,6 +188,20 @@ func spawn_player_for_peer(peer_id: int) -> void:
 		p.apply_peer_visuals(peer_id)
 
 
+## Server-only: every crew member is dead (T1.5). End the run for everyone by
+## reusing the connection-failed path — main.gd brings the lobby back with the
+## message, exactly like a dropped session.
+func report_all_dead() -> void:
+	if multiplayer.is_server():
+		_all_crew_dead.rpc()
+
+
+@rpc("authority", "call_local", "reliable")
+func _all_crew_dead() -> void:
+	disconnect_game()
+	connection_failed.emit("All crew perished in the desert")
+
+
 ## Host → client: hand over the shared world clock so the joining peer's
 ## day/night cycle and storm schedule line up with everyone else's. Sent once
 ## during the connection handshake; thereafter each peer computes locally.
