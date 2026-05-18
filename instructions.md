@@ -233,6 +233,14 @@ from scene nodes (`BoilerFirebox`, `BridgeHouse`, `CargoHold`) with const
 fallbacks. Damage/repair broadcast via sender-validated RPCs; HUD shows a
 9-value readout; `damage_taken` drives per-peer screen shake.
 
+**Machine wear (Tier 1, T1.3).** `_apply_machine_wear` runs **server-side**
+(ahead of the authority gate, since the host owns the steam plant and the
+`_apply_damage` RPC only accepts sender 0/1). `mobility` wears with distance
+× terrain roughness, `power` with engine order, `control` with hard yaw at
+speed. Wear accumulates and flushes through `_apply_damage` in discrete
+`wear_apply_step` chunks (low RPC cadence). The existing performance
+penalties give it immediate teeth; tuning lives in the `*_wear_*` exports.
+
 **Bandits** (`ai_ship_controller.gd` + `bandit_director.gd`): **parked for
 Tier 1** — `bandit_director.spawn_enabled` defaults `false`, so no raiders
 spawn (the combat/AI system is slated for an overhaul; see ROADMAP.md →

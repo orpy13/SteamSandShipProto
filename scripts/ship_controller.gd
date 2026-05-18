@@ -134,6 +134,18 @@ var system_integrity: Dictionary = {
 @export var min_mobility_factor: float = 0.3        # mobility at 0% integrity still allows 30% speed
 @export var min_control_factor: float = 0.2         # control at 0% integrity is sluggish but not dead
 
+# ── Machine wear (Tier 1, ROADMAP.md → T1.3) ─────────────────────────────────
+# Passive degradation from operation, applied SERVER-SIDE (the _apply_damage
+# RPC only accepts sender 0/1, and the host holds the steam-plant state). Wear
+# accumulates locally and flushes to the integrity model in discrete
+# `wear_apply_step` chunks so a reliable RPC isn't spammed every frame.
+@export var wear_enabled: bool = true
+@export var wear_apply_step: float = 0.02           # integrity flushed per RPC pulse
+@export var mobility_wear_per_m: float = 0.0006     # base wear per metre travelled
+@export var mobility_wear_rough_mult: float = 4.0   # ×|slope| roughness multiplier
+@export var power_wear_per_s: float = 0.006         # at Full Ahead; scales with engine order
+@export var control_wear_per_s: float = 0.020       # scales with |yaw rate| × speed fraction
+
 # Fallback ship-local centroids for the INTERNAL systems only, used when the
 # corresponding scene node can't be found (e.g. someone renamed it). The live
 # values come from `_get_system_positions()` below. `mobility` (the wheels) is
@@ -162,6 +174,10 @@ var _prev_yaw: float = 0.0        # for yaw-rate / lateral-accel estimation
 # Cached Wheel* children + their design X/Z; only their Y is driven each frame.
 var _wheels: Array = []           # [{ "node": Node3D, "lx": float, "lz": float }]
 
+# Server-side machine-wear accumulators (flushed in wear_apply_step chunks).
+var _wear_accum: Dictionary = {"mobility": 0.0, "power": 0.0, "control": 0.0}
+var _wear_prev_yaw: float = 0.0   # server-local yaw-rate estimate for wear
+
 @onready var _steam_plant: Node = get_node_or_null("SteamPlant")
 
 
@@ -171,6 +187,7 @@ func _ready() -> void:
 	position = Vector3.ZERO
 	money = starting_money
 	_prev_yaw = virtual_yaw
+	_wear_prev_yaw = virtual_yaw
 	_prev_speed = current_speed
 	for child in get_children():
 		if child is Node3D and String(child.name).begins_with("Wheel"):
@@ -181,6 +198,11 @@ func _ready() -> void:
 ## Authority drives input and updates virtual_yaw/world_offset; all peers run
 ## the terrain-following pass so the ship visually pitches/rolls over dunes.
 func _physics_process(delta: float) -> void:
+	# Machine wear is server-authored and must run on the host regardless of
+	# who currently holds helm authority — so it sits ahead of the gate below.
+	if multiplayer.is_server() and wear_enabled:
+		_apply_machine_wear(delta)
+
 	if not is_multiplayer_authority():
 		_apply_terrain_following(delta)
 		speed_changed.emit(current_speed)
@@ -470,6 +492,42 @@ func _slope_along_heading() -> float:
 	var back_height: float = _sample_terrain_height(Vector3(0.0, 0.0, terrain_contact_back))
 	var wheel_base := terrain_contact_front - terrain_contact_back
 	return atan2(front_height - back_height, wheel_base)
+
+
+## (T1.3) Server-only passive wear. Reads replicated speed/yaw/engine-order +
+## the host-simulated steam plant; accumulates per-system wear and flushes it
+## through the existing `_apply_damage` RPC in `wear_apply_step` chunks (so the
+## reliable RPC fires every several seconds, not every frame). A worn ship
+## handles worse (speed/turn/boiler-leak penalties already exist) and edges
+## toward stranding — reinforcing the maintenance loop.
+func _apply_machine_wear(delta: float) -> void:
+	if delta <= 0.0:
+		return
+	var speed := absf(current_speed)
+
+	# mobility — distance travelled, amplified by rough (sloped) ground.
+	var dist := speed * delta
+	var rough := 1.0 + mobility_wear_rough_mult * absf(sin(_slope_along_heading()))
+	_wear_accum["mobility"] += mobility_wear_per_m * dist * rough
+
+	# power — boiler working harder at higher engine orders.
+	var order_frac := clampf(absf(float(engine_order)) / 4.0, 0.0, 1.0)
+	_wear_accum["power"] += power_wear_per_s * order_frac * delta
+
+	# control — steering load: hard yaw at speed stresses the gear.
+	var yaw_rate := absf(wrapf(virtual_yaw - _wear_prev_yaw, -PI, PI)) / delta
+	_wear_prev_yaw = virtual_yaw
+	var speed_frac := clampf(speed / maxf(max_forward_speed, 0.001), 0.0, 1.0)
+	_wear_accum["control"] += control_wear_per_s * yaw_rate * speed_frac * delta
+
+	# Flush whole steps so the RPC cadence stays low; skip dead systems.
+	for sys in _wear_accum.keys():
+		if float(system_integrity.get(sys, 0.0)) <= 0.0:
+			_wear_accum[sys] = 0.0
+			continue
+		while _wear_accum[sys] >= wear_apply_step:
+			_wear_accum[sys] -= wear_apply_step
+			_apply_damage.rpc(sys, wear_apply_step)
 
 
 ## Translate a ship-local contact offset into the (virtual) world position used
