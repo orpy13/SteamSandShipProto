@@ -169,9 +169,6 @@ func _resolve_animations() -> void:
 		var all := _anim.get_animation_list()
 		if all.size() > 0:
 			_anim_idle = String(all[0])
-	print("[anim] libs=", _anim.get_animation_library_list(),
-			" list=", _anim.get_animation_list(),
-			" -> idle='", _anim_idle, "' run='", _anim_run, "' jump='", _anim_jump, "'")
 	for nm in [_anim_idle, _anim_run]:
 		if nm != "" and _anim.has_animation(nm):
 			_anim.get_animation(nm).loop_mode = Animation.LOOP_LINEAR
