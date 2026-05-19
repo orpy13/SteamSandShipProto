@@ -64,6 +64,13 @@ func _physics_process(delta: float) -> void:
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
 		return
 
+	# Debug/god mode: pin firebox + reservoir to full so the boiler can never
+	# starve. Pressure still rises through the normal sim, so the ship behaves
+	# like itself — it just never runs out of consumables.
+	if GameState.debug_mode:
+		coal_in_firebox = max_coal
+		water_level = max_water_level
+
 	# Damage scaling: power integrity 1.0 = leaks at baseline rates; 0.0 = up
 	# to leak_max× faster on both pressure and water consumption.
 	var ship := get_parent()

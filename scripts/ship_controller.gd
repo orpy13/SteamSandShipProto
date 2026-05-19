@@ -782,6 +782,19 @@ func remove_cargo(good_id: String, qty: int) -> bool:
 	return true
 
 
+## Debug/god-mode teleport (DebugPanel). Issued by the host; broadcast to every
+## peer so the offset takes effect regardless of who currently holds ship
+## authority. Sender-validated (host only).
+@rpc("any_peer", "call_local", "reliable")
+func debug_set_offset(new_offset: Vector3) -> void:
+	var sender := multiplayer.get_remote_sender_id()
+	if sender != 0 and sender != 1:
+		return
+	world_offset = new_offset
+	current_speed = 0.0
+	current_turn_rate = 0.0
+
+
 @rpc("any_peer", "call_local", "reliable")
 func _set_cargo(good_id: String, new_qty: int) -> void:
 	var sender := multiplayer.get_remote_sender_id()

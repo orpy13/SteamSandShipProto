@@ -10,6 +10,8 @@ extends Node
 @onready var _lobby: Control = $UILayer/Lobby
 @onready var _hud: Control = $UILayer/HUD
 @onready var _ship: CharacterBody3D = $Ship
+@onready var _ui_layer: CanvasLayer = $UILayer
+var _debug_panel: DebugPanel = null
 
 
 ## Wire up NetworkManager → UI transitions and give the HUD its ship reference.
@@ -21,6 +23,11 @@ func _ready() -> void:
 	NetworkManager.connection_failed.connect(_on_connection_failed)
 	if _hud.has_method("bind_ship"):
 		_hud.bind_ship(_ship)
+	# Debug/god-mode overlay (F1). Spawned on every peer so the autoload flag
+	# stays in sync, but only the host can toggle it on (see DebugPanel).
+	_debug_panel = DebugPanel.new()
+	_debug_panel.name = "DebugPanel"
+	_ui_layer.add_child(_debug_panel)
 
 
 ## Hide the lobby and show the HUD once we have a live session — host start

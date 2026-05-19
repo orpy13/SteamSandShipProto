@@ -277,6 +277,13 @@ func _process(_delta: float) -> void:
 	var secs := GameState.world_time()
 	_time_of_day = fposmod(secs, day_length_seconds) / day_length_seconds
 
+	# Debug override: snap time-of-day so the requested daylight reads through
+	# the whole pipeline (sun position, ambient, sky, billboards). Mapping:
+	# 0 → midnight (0.75), 0.5 → dusk (0.5), 1 → noon (0.25).
+	if GameState.debug_mode and not is_nan(GameState.debug_force_daylight):
+		var dl := clampf(GameState.debug_force_daylight, 0.0, 1.0)
+		_time_of_day = lerpf(0.75, 0.25, dl)
+
 	# ── Solar position in the fixed WORLD frame ──────────────────────────────
 	# ang: 0 at dawn (+X horizon), PI/2 at noon (+Y), PI at dusk (-X), 3PI/2 at
 	# midnight (-Y, below ground). z carries the southward tilt of the arc.

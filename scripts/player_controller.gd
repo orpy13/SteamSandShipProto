@@ -425,11 +425,31 @@ func _physics_process(delta: float) -> void:
 	var spd := MOVEMENT_SPEED * lerpf(low_energy_speed_floor, 1.0, clampf(energy / 100.0, 0.0, 1.0))
 	if _critical:
 		spd *= critical_speed_mult
+	# Debug speed boost (a poor-man's free-fly — fast enough to cross the map
+	# without spending real time, but walking still respects collisions unless
+	# no-clip is also enabled).
+	if GameState.debug_mode:
+		spd *= GameState.debug_speed_mult
 	velocity.x = move.x * spd
 	velocity.z = move.z * spd
-	if is_on_floor():
+	# No-clip: pass through everything and fly vertically with jump (up) /
+	# brake (down). The lateral speed above is reused, so move_right/left/etc.
+	# steer the flight in camera space.
+	var noclip := GameState.debug_mode and GameState.debug_noclip
+	_apply_noclip(noclip)
+	if noclip:
+		var vy := 0.0
+		if Input.is_action_pressed("jump"):
+			vy += spd
+		if Input.is_action_pressed("brake"):
+			vy -= spd
+		velocity.y = vy
+	elif is_on_floor():
 		if Input.is_action_just_pressed("jump"):
-			velocity.y = JUMP_VELOCITY
+			var jv := JUMP_VELOCITY
+			if GameState.debug_mode:
+				jv *= GameState.debug_jump_mult
+			velocity.y = jv
 		else:
 			# Small negative velocity keeps us "stuck" to ramped surfaces.
 			velocity.y = -1.0
@@ -545,6 +565,20 @@ func apply_peer_visuals(peer_id: int) -> void:
 		var mat := StandardMaterial3D.new()
 		mat.albedo_color = color
 		_mesh.material_override = mat
+
+
+# ── Debug: no-clip toggle (mask 0 lets us pass through walls/terrain/ship) ──
+# Cached so we restore the original mask exactly when no-clip flips off.
+var _noclip_saved_mask: int = -1
+
+
+func _apply_noclip(on: bool) -> void:
+	if on and _noclip_saved_mask < 0:
+		_noclip_saved_mask = collision_mask
+		collision_mask = 0
+	elif not on and _noclip_saved_mask >= 0:
+		collision_mask = _noclip_saved_mask
+		_noclip_saved_mask = -1
 
 
 # ── Carry-item API (used by coal_bunker / boiler_firebox) ────────────────────
@@ -701,6 +735,20 @@ func get_carried_cargo_good() -> String:
 ## scales with activity + environment (midday sun / sandstorm / being off-ship
 ## in the open dunes). hunger or thirst at 0 → dead.
 func _tick_survival(delta: float) -> void:
+	# Debug/god mode: freeze needs at full and revive on the fly. The early
+	# return below skips drain entirely (no death possible).
+	if GameState.debug_mode:
+		hunger = 100.0
+		thirst = 100.0
+		energy = 100.0
+		_critical = false
+		_critical_timer = 0.0
+		if is_dead:
+			# Broadcast so every peer un-freezes our body, not just us.
+			set_survival_dead.rpc(false)
+		else:
+			survival_changed.emit(hunger, thirst, energy, is_dead)
+		return
 	if is_dead:
 		return
 

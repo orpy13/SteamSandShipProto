@@ -218,12 +218,11 @@ independent but the chart is only interesting once T2.2 has POIs to find.
 
 ## Future (re-slotted to build on Tier 2)
 
-- **Debug / god mode for testing** *(do early — high leverage)*: a toggle
-  (key/console) granting test conveniences — no survival drain / no
-  death, infinite fuel & cargo, instant repair, free-fly or teleport,
-  force weather/time, spawn a bandit. Host-gated; off by default. Every
-  system since Tier 1 is slow to hand-set-up a test state for, so this
-  pays for itself fast.
+- **Free-fly camera** *(deferred)*: a real decoupled flight camera (separate
+  rig, no collision, mouse-driven look) for inspecting the world from above.
+  The shipped debug overlay (F1) covers most testing with speed × / jump × /
+  no-clip — free-fly stays parked until inspection from arbitrary angles is
+  actually needed (e.g. when validating Tier 2 regions / settlement layout).
 - **Unique quests / contracts**: per-settlement jobs (find / deliver /
   fetch) routed via the Tier 2 chart + settlement registry.
 - **World impact**: purchase buildings at settlements; per-settlement

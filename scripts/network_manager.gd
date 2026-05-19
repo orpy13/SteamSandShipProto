@@ -99,6 +99,7 @@ func _on_peer_connected(peer_id: int) -> void:
 	if multiplayer.is_server():
 		update_player_list.rpc_id(peer_id, players)
 		notify_world_clock.rpc_id(peer_id, GameState.world_epoch, GameState.weather_seed)
+		notify_debug_mode.rpc_id(peer_id, GameState.debug_mode)
 		notify_helmsman_changed.rpc_id(peer_id, current_helmsman)
 		notify_gunner_changed.rpc_id(peer_id, current_gunner)
 		for existing_id in players.keys():
@@ -209,6 +210,21 @@ func _all_crew_dead() -> void:
 func notify_world_clock(epoch: float, seed_value: int) -> void:
 	GameState.world_epoch = epoch
 	GameState.weather_seed = seed_value
+
+
+## Host → all peers: the debug/god mode flag changed (see GameState). Sent on
+## join (current value) and whenever the host toggles the DebugPanel.
+@rpc("authority", "call_local", "reliable")
+func notify_debug_mode(enabled: bool) -> void:
+	GameState.debug_mode = enabled
+	GameState.debug_mode_changed.emit(enabled)
+
+
+## Host-only entry point: flip the flag locally and broadcast.
+func set_debug_mode(enabled: bool) -> void:
+	if not multiplayer.is_server():
+		return
+	notify_debug_mode.rpc(enabled)
 
 
 ## Broadcast: a new peer has the helm. Every peer updates its local cache so

@@ -218,6 +218,15 @@ func _process(_delta: float) -> void:
 			active_radius = radius
 
 	_intensity = best
+
+	# Debug override: force a storm at the requested intensity, parked on the
+	# ship so the fog volume always wraps you.
+	if GameState.debug_mode and not is_nan(GameState.debug_force_storm):
+		_intensity = clampf(GameState.debug_force_storm, 0.0, 1.0)
+		if _intensity > 0.001:
+			active_center = ship_off
+			active_radius = maxf(active_radius, storm_radius_min)
+
 	_apply(active_center, active_radius, ship_off)
 
 

@@ -74,6 +74,23 @@ func _process(delta: float) -> void:
 	_spawn_bandit_behind(player)
 
 
+## Debug/god-mode: force-spawn one bandit behind the ship right now, ignoring
+## the timer / chance / parked-spawn / one-at-a-time guard. Called by the
+## DebugPanel; host-only.
+func debug_spawn_one() -> void:
+	if not multiplayer.is_server():
+		return
+	var player := get_tree().get_first_node_in_group("ship")
+	if player == null:
+		return
+	# Don't gate on spawn_enabled / player speed — debug should always work.
+	# We still respect "one at a time" only in the sense that the existing
+	# bandit (if any) will be tracked alongside; the director's _process gate
+	# returns early on `_current_bandit`, but that's fine — debug spawns are
+	# additive when called repeatedly.
+	_spawn_bandit_behind(player)
+
+
 ## Host-only. Pick a spot behind the player, broadcast spawn to every peer.
 func _spawn_bandit_behind(player: Node) -> void:
 	var yaw: float = float(player.virtual_yaw)

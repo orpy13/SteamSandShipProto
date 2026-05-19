@@ -30,6 +30,26 @@ var local_player_name: String = "Player"
 var world_epoch: float = 0.0
 var weather_seed: int = 0
 
+# ── Debug / god mode ────────────────────────────────────────────────────────
+# Host-authoritative testing toggle. Off by default; the host flips it from
+# the DebugPanel overlay (F1) and NetworkManager broadcasts the new value to
+# every peer via notify_debug_mode. Consumers gate their cheats on this flag —
+# see player_controller (no drain / no death / speed+jump mult), steam_plant
+# (infinite fuel), coal_bunker / water_tank (no stock decrement), and the
+# DebugPanel itself for one-shot actions (refill cargo+money, repair-all,
+# teleport, spawn bandit, force weather/time).
+signal debug_mode_changed(enabled: bool)
+var debug_mode: bool = false
+## Optional local overrides driven by the DebugPanel sliders. Read by
+## day_night_cycle / weather_system getters as a shadow value for testing.
+## NAN = "no override" so the real simulation runs.
+var debug_force_daylight: float = NAN
+var debug_force_storm: float = NAN
+## Player movement multipliers (DebugPanel toggles). 1.0 = no change.
+var debug_speed_mult: float = 1.0
+var debug_jump_mult: float = 1.0
+var debug_noclip: bool = false
+
 
 ## Seconds since the shared epoch. Falls back to a process-local clock when no
 ## epoch has been set yet (solo editor runs / pre-session), so visuals still

@@ -88,7 +88,7 @@ res://
     ├── ship_controller.gd                     # Locomotion + damage model + economy state
     ├── steam_plant.gd                         # Coal → heat → pressure → power
     ├── player_controller.gd                   # Movement, look, interact, carry, helm/gun lock
-    ├── player_nametag.gd  hud.gd  lobby.gd  gun_overlay.gd  trade_panel.gd
+    ├── player_nametag.gd  hud.gd  lobby.gd  gun_overlay.gd  trade_panel.gd  debug_panel.gd
     ├── ai_ship_controller.gd                  # Bandit brain (APPROACH/PACE, fires broadsides)
     ├── bandit_director.gd                     # Host-only bandit spawner + cannonball spawn/despawn hub
     ├── cannonball.gd                          # Deterministic ballistic shell, host-only hit detection
@@ -503,6 +503,51 @@ held and frees their player node (checks both PlayerContainer and WorldMap).
 
 ---
 
+## Debug / god mode
+
+A host-only testing toggle, off by default. Press **F1** to open the
+`DebugPanel` overlay (`scripts/debug_panel.gd`, code-built, parented to
+`UILayer` in `main.gd`). The master button flips `GameState.debug_mode`;
+`NetworkManager.set_debug_mode` → `notify_debug_mode` RPC broadcasts the flag
+to every peer so consumers stay in sync. Clients see the panel hidden — only
+the host can toggle the flag.
+
+While debug is on:
+
+- **No drain / no death** — `player_controller._tick_survival` pins
+  hunger/thirst/energy to 100 and broadcasts a revive if already dead.
+- **Infinite fuel** — `steam_plant._physics_process` re-clamps coal & water
+  to max each tick (pressure still rises through the normal sim).
+- **Speed × / Jump ×** — `GameState.debug_speed_mult` / `debug_jump_mult`
+  multiply `MOVEMENT_SPEED` and `JUMP_VELOCITY`. A cheap substitute for
+  free-fly (see ROADMAP Future).
+- **No-clip** — toggles the player's `collision_mask` to 0 and rewires
+  vertical input (jump = up, brake = down, no gravity) so the body flies
+  through the ship/terrain/walls. Saved mask is restored on toggle-off.
+- **Force daylight / Force storm** — `GameState.debug_force_daylight` /
+  `debug_force_storm` (NAN = no override). `day_night_cycle._process` snaps
+  `_time_of_day` so the requested daylight cascades through the lighting
+  pipeline; `weather_system._process` overrides `_intensity` and parks the
+  fog volume on the ship.
+
+Panel buttons (host-only, route through existing host-authoritative paths):
+
+- **Refill cargo + money** — `ship.receive_money` + `add_cargo` per good.
+- **Repair all systems** — `ship.repair_system(k, 1.0)` for every key.
+- **Refuel boiler now** — `SteamPlant.add_coal` / `add_water` to capacity.
+- **Spawn bandit** — `bandit_director.debug_spawn_one()` (bypasses
+  `spawn_enabled` / chance / timer; ignores the one-at-a-time guard so the
+  director's natural loop can resume cleanly).
+- **Kill all bandits** — destroys every `Bandit_*` under WorldMap.
+- **Teleport →** — dropdown of curated `HAND_PLACED_OASES` offsets;
+  `ship.debug_set_offset.rpc(world_offset)` lands on every peer regardless
+  of who currently holds ship authority.
+
+Toggle is `debug_toggle` (F1) in the input map. Free-fly camera remains a
+Future item — speed × + jump × + no-clip cover most testing needs.
+
+---
+
 ## Lobby flow
 
 1. App opens on `main.tscn` → `Lobby` visible, `HUD` hidden.
@@ -530,6 +575,7 @@ held and frees their player node (checks both PlayerContainer and WorldMap).
 | `brake`         | B            |
 | `interact`      | E            |
 | `fire`          | Left Mouse   |
+| `debug_toggle`  | F1 — host-only god-mode overlay (see Debug / god mode) |
 
 Context-sensitive remapping (player_controller):
 
