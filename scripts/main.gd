@@ -35,5 +35,8 @@ func _on_session_started() -> void:
 func _on_connection_failed(reason: String) -> void:
 	_lobby.visible = true
 	_hud.visible = false
+	# Player controllers capture the mouse; the lobby needs it back or you
+	# can't click Host/Join after a drop or an all-crew-dead run end.
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if _lobby.has_method("set_status"):
 		_lobby.set_status(reason)

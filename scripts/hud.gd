@@ -260,6 +260,23 @@ func _on_survival_changed(h: float, t: float, e: float, dead: bool) -> void:
 		_survival_label.text = "DOWNED — reach a settlement"
 		_survival_label.modulate = Color(1.0, 0.3, 0.3)
 		return
-	_survival_label.modulate = Color(1, 1, 1)
+	# Collapsing (a need bottomed out, grace period before death).
+	if h <= 0.0 or t <= 0.0:
+		var what := "FOOD" if h <= 0.0 else "WATER"
+		_survival_label.text = "COLLAPSING — no %s! eat/drink NOW" % what
+		# Pulse red so it's impossible to miss.
+		var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.012)
+		_survival_label.modulate = Color(1.0, 0.2 + 0.2 * pulse, 0.2)
+		return
+	var low := 25.0
+	var warns: Array[String] = []
+	if h < low: warns.append("FOOD")
+	if t < low: warns.append("WATER")
+	if e < low: warns.append("ENERGY")
 	_survival_label.text = "Hunger %d | Thirst %d | Energy %d" % [
 		int(round(h)), int(round(t)), int(round(e))]
+	if warns.is_empty():
+		_survival_label.modulate = Color(1, 1, 1)
+	else:
+		_survival_label.text += "   ⚠ LOW " + " / ".join(warns)
+		_survival_label.modulate = Color(1.0, 0.72, 0.2)  # amber

@@ -212,7 +212,11 @@ scales movement speed down to `low_energy_speed_floor`.
 Consumption is item-driven: carry a `cargo_food` / `cargo_drinking_water`
 good (bought at a market like any cargo, T1.1) and press **E with nothing
 targeted** to eat/drink it (`_try_consume_carried`). `hunger` or `thirst`
-at 0 → **dead**: the body freezes (`set_survival_dead` RPC broadcasts it).
+at 0 → **collapsing**: a `critical_grace`-second window where the crew
+member can barely move (`critical_speed_mult`) — enough to crawl to
+supplies or be carried — before they actually die. Eating/drinking back
+above 0 cancels it. Death freezes the body (`set_survival_dead` RPC). The
+HUD readout goes amber on a low need and pulses red while collapsing.
 Reaching a settlement and making **any market trade** revives + re-provisions
 the whole crew (`oasis_market._revive_crew` → `revive_survival` RPC). If
 **every** crew member is dead the run ends — the host calls

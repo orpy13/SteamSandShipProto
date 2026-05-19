@@ -43,11 +43,19 @@ signal survival_changed(hunger: float, thirst: float, energy: float, dead: bool)
 @export var low_energy_speed_floor: float = 0.45 # movement multiplier at 0 energy
 @export var food_restore: float = 55.0          # hunger per ration eaten (+ a little energy)
 @export var water_restore: float = 60.0         # thirst per drinking-water consumed
+@export var low_warn_threshold: float = 25.0    # HUD turns amber below this
+@export var critical_grace: float = 14.0        # seconds collapsing at 0 before death
+@export var critical_speed_mult: float = 0.22   # movement while collapsing (very slow)
 
 var hunger: float = 100.0
 var thirst: float = 100.0
 var energy: float = 100.0
 var is_dead: bool = false
+# Grace period: hunger/thirst at 0 → collapsing (barely able to move) for
+# `critical_grace` seconds before actually dying. Eating/drinking in time
+# pulls you back out.
+var _critical: bool = false
+var _critical_timer: float = 0.0
 
 # Lazily-built cargo withdraw chooser (one per local player).
 var _cargo_panel: CargoPanel = null
@@ -305,8 +313,11 @@ func _physics_process(delta: float) -> void:
 	var move := cam_right * input_dir.x - cam_forward * input_dir.y
 	if move.length() > 1.0:
 		move = move.normalized()
-	# Low energy saps your pace (never below low_energy_speed_floor).
+	# Low energy saps your pace (never below low_energy_speed_floor); a
+	# collapsing crew member can only just shuffle.
 	var spd := MOVEMENT_SPEED * lerpf(low_energy_speed_floor, 1.0, clampf(energy / 100.0, 0.0, 1.0))
+	if _critical:
+		spd *= critical_speed_mult
 	velocity.x = move.x * spd
 	velocity.z = move.z * spd
 	if is_on_floor():
@@ -610,8 +621,17 @@ func _tick_survival(delta: float) -> void:
 	else:
 		energy = clampf(energy - energy_drain_idle * delta, 0.0, 100.0)
 
+	# Collapsing grace: at 0 you don't drop dead — you can barely move for
+	# `critical_grace` seconds, enough to crawl to food/water or be carried
+	# back. Recover above 0 and you're out of it.
 	if hunger <= 0.0 or thirst <= 0.0:
-		set_survival_dead.rpc(true)  # call_local applies here too
+		_critical = true
+		_critical_timer += delta
+		if _critical_timer >= critical_grace:
+			set_survival_dead.rpc(true)  # call_local applies here too
+	else:
+		_critical = false
+		_critical_timer = 0.0
 	survival_changed.emit(hunger, thirst, energy, is_dead)
 
 
@@ -662,6 +682,8 @@ func rest_energy(amount: float) -> void:
 @rpc("any_peer", "call_local", "reliable")
 func revive_survival() -> void:
 	is_dead = false
+	_critical = false
+	_critical_timer = 0.0
 	hunger = maxf(hunger, 50.0)
 	thirst = maxf(thirst, 55.0)
 	energy = maxf(energy, 55.0)
