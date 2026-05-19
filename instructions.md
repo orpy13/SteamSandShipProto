@@ -100,7 +100,9 @@ res://
     ├── interactable.gd                        # Base Area3D class
     └── interactables/
         ├── helm.gd  coal_bunker.gd  water_tank.gd  boiler_firebox.gd  water_tower.gd
-        ├── repair_point.gd  workshop.gd (kit repository)
+        ├── repair_point.gd  workshop.gd (kit repository)  bed.gd
+        ├── (scripts/cargo_panel.gd — code-built withdraw chooser)
+        ├── (scenes/items/ — water_bottle.tscn, sausage.tscn physical consumables)
         ├── deck_gun.gd  ammo_magazine.gd  workshop.gd
         ├── oasis_market.gd  cargo_hold_deposit.gd  gangway.gd
 ```
@@ -225,6 +227,19 @@ ship-level game-over — only crew death ends the run.
 HUD: a code-built bottom-left readout (`hud._on_survival_changed`) shows the
 local crew member's needs (red "DOWNED" when dead), bound whether aboard or
 disembarked.
+
+**Items, withdraw & rest.** `water_bottle` / `sausage` (scenes/items, real
+RigidBody3D meshes) are non-tradeable `Goods` entries — held as the actual
+scene prop (frozen) and consumed via E-with-no-target to slake thirst /
+hunger; a few of each are in the hold on spawn. The **cargo hold** is now
+two-way: carrying a crate → deposit (host path); empty-handed → a code-built
+`CargoPanel` chooser (opened locally like the trade panel) whose Take button
+RPCs `CargoHoldDeposit.request_withdraw` so the host moves one unit from
+`ship.cargo` into your hands. The **bed** (`bed.gd` on a `RestPoint` Area3D
+child of bed_single.tscn) restores `rest_amount` energy per E press
+(`player.rest_energy` RPC). *Dropping* carried items in the world is not yet
+implemented — see ROADMAP "Future" (needs a networked world-item spawn +
+re-pickup; the item scenes are RigidBody3D for exactly this).
 
 ---
 

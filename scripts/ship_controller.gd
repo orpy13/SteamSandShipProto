@@ -111,6 +111,10 @@ var cargo: Dictionary = {
 	"repair_kit": 0,
 	"food": 0,
 	"drinking_water": 0,
+	# Physical test consumables — a starting stock so a fresh run can survive
+	# the first leg. Deterministic default (like `money`), no RPC needed.
+	"water_bottle": 4,
+	"sausage": 4,
 }
 
 var system_integrity: Dictionary = {

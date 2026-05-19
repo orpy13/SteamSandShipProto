@@ -11,6 +11,7 @@ extends Interactable
 
 func _ready() -> void:
 	prompt_text = "Bring cargo here"
+	add_to_group("cargo_hold")  # player_controller opens the withdraw chooser
 
 
 ## Contextual prompt: shows what good the player is carrying, plus the
@@ -19,7 +20,7 @@ func get_prompt(player: Node) -> String:
 	if player == null:
 		return "Bring cargo here"
 	if not player.has_method("is_carrying_cargo") or not bool(player.call("is_carrying_cargo")):
-		return "Bring cargo here"
+		return "Press E to take from hold"
 	var good_id := String(player.call("get_carried_cargo_good"))
 	if good_id.is_empty():
 		return "Bring cargo here"
@@ -56,6 +57,33 @@ func interact(peer_id: int) -> void:
 		return  # capacity full — keep the crate in hand
 	super(peer_id)
 	player.rpc("set_carried_item", "")
+
+
+## Withdraw one unit of `good_id` from the hold into the caller's hands.
+## Server-validated; the chooser UI (cargo_panel.gd) RPCs this.
+@rpc("any_peer", "call_local", "reliable")
+func request_withdraw(good_id: String) -> void:
+	if not multiplayer.is_server():
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	if sender == 0:
+		sender = multiplayer.get_unique_id()
+	var player := _find_player(sender)
+	if player == null or not player.has_method("can_carry_item"):
+		return
+	if not bool(player.call("can_carry_item")):
+		return
+	var ship := get_tree().get_first_node_in_group("ship")
+	if ship == null or not ship.has_method("remove_cargo"):
+		return
+	if int(ship.cargo.get(good_id, 0)) <= 0:
+		return
+	if not ship.remove_cargo(good_id, 1):
+		return
+	var carry_id := Goods.get_carry_id(good_id)
+	if carry_id.is_empty():
+		return
+	player.rpc("set_carried_item", carry_id)
 
 
 func _find_player(peer_id: int) -> Node:

@@ -49,6 +49,9 @@ var thirst: float = 100.0
 var energy: float = 100.0
 var is_dead: bool = false
 
+# Lazily-built cargo withdraw chooser (one per local player).
+var _cargo_panel: CargoPanel = null
+
 # Distinct capsule colours so each peer is visually identifiable on deck.
 const PEER_COLORS: Array[Color] = [
 	Color(0.95, 0.30, 0.30),
@@ -351,6 +354,11 @@ func _poll_interact() -> void:
 			if panel != null and panel.has_method("open_for_market"):
 				panel.open_for_market(_current_interactable)
 			return
+		# Cargo hold: deposit when carrying a crate (host path), otherwise
+		# open the local withdraw chooser.
+		if _current_interactable.is_in_group("cargo_hold") and not is_carrying_cargo():
+			_open_cargo_panel(_current_interactable)
+			return
 		_request_interact.rpc_id(1, _current_interactable.get_path())
 	elif Input.is_action_just_pressed("interact") and _current_interactable == null:
 		# Not aimed at anything — E eats/drinks a carried ration / water.
@@ -461,6 +469,10 @@ func _refresh_carried_visual() -> void:
 			_carried_visual = _make_clip_visual()
 		"repair_kit":
 			_carried_visual = _make_repair_kit_visual()
+		"item_water_bottle":
+			_carried_visual = _make_item_visual("res://scenes/items/water_bottle.tscn")
+		"item_sausage":
+			_carried_visual = _make_item_visual("res://scenes/items/sausage.tscn")
 		_:
 			# Cargo crates use a string like "cargo_coal" / "cargo_water" /
 			# "cargo_spice". The Goods registry tells us the tint.
@@ -531,6 +543,25 @@ func _make_cargo_visual(carry_id: String) -> MeshInstance3D:
 	return n
 
 
+## Instance a physical item scene (water bottle / sausage) as the held prop.
+## The source scenes are RigidBody3D — freeze them and clear collision so they
+## sit still in the carry socket instead of falling / shoving the player.
+func _make_item_visual(scene_path: String) -> Node3D:
+	if not ResourceLoader.exists(scene_path):
+		return null
+	var ps: Resource = load(scene_path)
+	if not (ps is PackedScene):
+		return null
+	var inst: Node = (ps as PackedScene).instantiate()
+	if inst is RigidBody3D:
+		var rb := inst as RigidBody3D
+		rb.freeze = true
+		rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+		rb.collision_layer = 0
+		rb.collision_mask = 0
+	return inst as Node3D
+
+
 # ── Cargo carry helpers (used by oasis market + cargo hold deposit) ──────────
 
 ## True if our carry slot holds any cargo crate.
@@ -584,14 +615,26 @@ func _tick_survival(delta: float) -> void:
 	survival_changed.emit(hunger, thirst, energy, is_dead)
 
 
+## Open (building it once) the cargo withdraw chooser for `hold`.
+func _open_cargo_panel(hold: Node) -> void:
+	if _cargo_panel == null or not is_instance_valid(_cargo_panel):
+		_cargo_panel = CargoPanel.new()
+		var ui := get_tree().current_scene.get_node_or_null("UILayer")
+		if ui != null:
+			ui.add_child(_cargo_panel)
+		else:
+			add_child(_cargo_panel)
+	_cargo_panel.open_for_hold(hold)
+
+
 ## E with empty aim eats a carried ration / drinks carried water.
 func _try_consume_carried() -> void:
-	if carried_item_type == "cargo_food":
+	if carried_item_type == "cargo_food" or carried_item_type == "item_sausage":
 		hunger = minf(100.0, hunger + food_restore)
 		energy = minf(100.0, energy + food_restore * 0.3)
 		set_carried_item.rpc("")
 		survival_changed.emit(hunger, thirst, energy, is_dead)
-	elif carried_item_type == "cargo_drinking_water":
+	elif carried_item_type == "cargo_drinking_water" or carried_item_type == "item_water_bottle":
 		thirst = minf(100.0, thirst + water_restore)
 		set_carried_item.rpc("")
 		survival_changed.emit(hunger, thirst, energy, is_dead)
@@ -605,6 +648,14 @@ func set_survival_dead(value: bool) -> void:
 	survival_changed.emit(hunger, thirst, energy, is_dead)
 	if value and multiplayer.is_server():
 		_check_all_dead()
+
+
+## Bed rest — top up energy (permissive sender; co-op). Applied on the
+## authority instance (which simulates energy) and harmless elsewhere.
+@rpc("any_peer", "call_local", "reliable")
+func rest_energy(amount: float) -> void:
+	energy = clampf(energy + amount, 0.0, 100.0)
+	survival_changed.emit(hunger, thirst, energy, is_dead)
 
 
 ## Reaching a settlement (any market trade) revives + re-provisions the crew.

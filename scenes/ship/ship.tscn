@@ -12,6 +12,7 @@
 [ext_resource type="PackedScene" path="res://scenes/interactables/gangway.tscn" id="10"]
 [ext_resource type="PackedScene" path="res://scenes/interactables/water_tank.tscn" id="11"]
 [ext_resource type="PackedScene" path="res://scenes/interactables/repair_point.tscn" id="12"]
+[ext_resource type="PackedScene" uid="uid://da7tj2ebp7p22" path="res://scenes/interactables/bed_single.tscn" id="13_8ks32"]
 
 [sub_resource type="BoxShape3D" id="HullShape"]
 size = Vector3(20, 0.8798828, 60)
@@ -239,24 +240,23 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 4.084, 15)
 [node name="Workshop" parent="." unique_id=1639353790 instance=ExtResource("8")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 4.084, 15)
 
-[node name="CargoHoldDeposit" parent="." instance=ExtResource("9")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.1, 4)
+[node name="CargoHoldDeposit" parent="." unique_id=1487154281 instance=ExtResource("9")]
+transform = Transform3D(-4.371139e-08, 1, -4.371139e-08, 0, -4.371139e-08, -1, -1, -4.371139e-08, 1.9106855e-15, 3.0379415, 1.8462152, 4)
 
-[node name="Gangway" parent="." instance=ExtResource("10")]
+[node name="Gangway" parent="." unique_id=1459068626 instance=ExtResource("10")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 2.5, 0)
 
-[node name="WaterTank" parent="." instance=ExtResource("11")]
+[node name="WaterTank" parent="." unique_id=383280877 instance=ExtResource("11")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0.5, -14)
 
-[node name="RepairPower" parent="." instance=ExtResource("12")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.5, 0.5, -16)
-target_system = "power"
+[node name="RepairPower" parent="." unique_id=1839487409 instance=ExtResource("12")]
+transform = Transform3D(0.999903, 0.013927277, 0, -0.013927277, 0.999903, 0, 0, 0, 1, 1.6542509, 0.86515045, -17.731882)
 
-[node name="RepairControl" parent="." instance=ExtResource("12")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.5, 4.1, -19)
+[node name="RepairControl" parent="." unique_id=337893560 instance=ExtResource("12")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.25263023, 4.1, -17.507113)
 target_system = "control"
 
-[node name="RepairMobility" parent="." instance=ExtResource("12")]
+[node name="RepairMobility" parent="." unique_id=1901333843 instance=ExtResource("12")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.5, 0.5, -8)
 target_system = "mobility"
 
@@ -341,3 +341,6 @@ mesh = SubResource("PrismMesh_0s5ox")
 [node name="CollisionShape3D" type="CollisionShape3D" parent="AftStairs" unique_id=1618413396]
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 0, 2.1856565, -0.5444689)
 shape = SubResource("ConvexPolygonShape3D_gkhk1")
+
+[node name="bedSingle" parent="." unique_id=228234122 instance=ExtResource("13_8ks32")]
+transform = Transform3D(2.575, 0, 0, 0, 2.575, 0, 0, 0, 2.575, -5.729573, 0.8798828, 5.248212)

@@ -145,4 +145,9 @@ emergent from T1.2+T1.5. T1.7/T1.8 trail each feature.
   acceleration channel).
 - **Audio pass** and **visual model overhaul** (deferred force-multipliers;
   best after the loop exists).
+- **Drop carried items into the world**: E with no target spawns the held
+  item's RigidBody3D scene as a networked, re-pickupable world object
+  (server-spawned under WorldMap so it stays put in the dunes; item scenes
+  gain a pickup Area3D). Deferred from the items pass — it's a small
+  networked subsystem, not an inline tweak.
 - **Automated smoke test / CI** guard.

@@ -33,6 +33,12 @@ window/size/viewport_height=720
 
 enabled=PackedStringArray("res://addons/chunk_editor/plugin.cfg")
 
+[file_customization]
+
+folder_colors={
+"res://assets/": "orange"
+}
+
 [input]
 
 move_forward={
@@ -82,5 +88,4 @@ fire={
 
 [rendering]
 
-renderer/rendering_method="forward_plus"
 renderer/rendering_method.mobile="forward_plus"

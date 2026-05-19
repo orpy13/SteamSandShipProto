@@ -48,7 +48,30 @@ const ALL: Dictionary = {
 		"carry_id": "cargo_drinking_water",
 		"color": Color(0.35, 0.65, 0.80, 1),
 	},
+	# ── Physical consumable items (scenes/items/*). Not market-traded for now
+	# (`tradeable=false` keeps them out of the trade panel); they live in the
+	# hold, are withdrawn into hand, and are eaten/drunk to satisfy needs.
+	"water_bottle": {
+		"display_name": "Water Bottle",
+		"carry_id": "item_water_bottle",
+		"color": Color(0.35, 0.65, 0.85, 1),
+		"tradeable": false,
+	},
+	"sausage": {
+		"display_name": "Sausage",
+		"carry_id": "item_sausage",
+		"color": Color(0.7, 0.35, 0.25, 1),
+		"tradeable": false,
+	},
 }
+
+
+## Market-tradeable? Defaults true; physical test items set it false so the
+## trade panel skips them.
+static func is_tradeable(good_id: String) -> bool:
+	if not ALL.has(good_id):
+		return false
+	return bool(ALL[good_id].get("tradeable", true))
 
 const PRICES: Dictionary = {
 	"mining": {

@@ -89,6 +89,8 @@ func _build_rows() -> void:
 		return
 	var oasis_type := String(_active_market.get("oasis_type"))
 	for good_id in Goods.ALL.keys():
+		if not Goods.is_tradeable(good_id):
+			continue  # physical consumables aren't market goods
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
 
