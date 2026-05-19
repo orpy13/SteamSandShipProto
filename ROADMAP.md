@@ -27,6 +27,14 @@ file is the plan for what's *next*. Keep both honest.
 
 ## Tier 1 — work breakdown
 
+> **Status: shipped.** T1.0–T1.8 are all merged to `main` (commits
+> `eac328c` → `3ae67c6` → `624b658`, with follow-up passes for the
+> physical item set / two-way cargo hold / bed rest, and the
+> over-the-shoulder character controller + animations on top). The
+> sub-sections below remain as the design record of *what* was built and
+> the integration points used; the unresolved knobs (drain tuning,
+> capacity rebalance, etc.) are listed below under "Tier 1 follow-up".
+
 Ordered roughly by dependency. Each item notes the integration points so
 implementation stays grounded in the existing code.
 
@@ -115,15 +123,22 @@ emergent from T1.2+T1.5. T1.7/T1.8 trail each feature.
 
 ---
 
-## Open implementation details (decide while building)
+## Tier 1 follow-up (outstanding from the items list above)
 
-- Bunker/tank replenish UX: auto-draw buffer (recommended, low-UI) vs.
-  explicit "load from cargo" interaction.
-- Downed/revive model: revive cost, downed player's allowed actions,
-  spectate vs. stay-on-deck.
-- Survival drain/restore tuning and the heat/weather coupling curves.
-- Workshop node disposition (remove vs. repurpose).
-- Cargo capacity rebalance now that fuel + provisions + kits share the hold.
+Resolved in flight:
+- Bunker/tank replenish UX → **explicit load action** (locked).
+- Workshop disposition → **kept as kit repository** (locked).
+- Downed/revive → simple v1: frozen body, revive on any market trade.
+
+Still open (mostly a **balance pass** waiting on playtesting):
+- Survival drain/restore tuning and the heat/storm/exposed coupling
+  curves (many `@export`s at first-guess values).
+- Cargo capacity now that fuel + provisions + kits + items share the
+  20-slot hold — likely needs a rebalance or differentiated capacities.
+- Per-crew revive cost (food/water expended) as a richer model than the
+  current "any trade revives everyone".
+- Approximate transforms placed in `ship.tscn` during T1.4/T1.2 and the
+  carry-prop offsets — eyeball in editor.
 
 ---
 
