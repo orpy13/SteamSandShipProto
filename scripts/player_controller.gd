@@ -149,23 +149,21 @@ func _ready() -> void:
 func _resolve_animations() -> void:
 	if _anim == null:
 		return
-	# Resolve per library (the names you wired: "" default = idle, "jump",
-	# "run") rather than guessing inner clip names. Falls back to a global
-	# keyword scan if the libraries are laid out differently.
-	for lib in _anim.get_animation_library_list():
-		var lib_s := String(lib)
-		var al := _anim.get_animation_library(lib)
-		if al == null:
-			continue
-		for anim in al.get_animation_list():
-			var full := String(anim) if lib_s == "" else "%s/%s" % [lib_s, String(anim)]
-			var hay := (lib_s + " " + String(anim)).to_lower()
-			if _anim_jump == "" and (lib_s == "jump" or hay.contains("jump")):
-				_anim_jump = full
-			elif _anim_run == "" and (lib_s == "run" or hay.contains("run") or hay.contains("walk")):
-				_anim_run = full
-			elif _anim_idle == "" and hay.contains("idle"):
-				_anim_idle = full
+	# Match on the CLIP name (after the "lib/" prefix), not the library —
+	# each fbx holds a "…|0_Targeting Pose" take alongside the real clip, so
+	# keying off the library would grab the wrong one (the bug you saw).
+	for n in _anim.get_animation_list():
+		var s := String(n)
+		var clip := s.get_slice("/", s.get_slice_count("/") - 1)  # part after last '/'
+		var low := clip.to_lower()
+		if low.contains("targeting") or low.contains("pose"):
+			continue  # skip the bind/targeting take in each fbx
+		if _anim_jump == "" and low.contains("jump"):
+			_anim_jump = s
+		elif _anim_run == "" and (low.contains("run") or low.contains("walk")):
+			_anim_run = s
+		elif _anim_idle == "" and low.contains("idle"):
+			_anim_idle = s
 	# Last-ditch: if idle still unknown, take the first animation we have.
 	if _anim_idle == "":
 		var all := _anim.get_animation_list()
