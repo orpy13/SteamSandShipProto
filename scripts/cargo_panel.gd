@@ -18,13 +18,15 @@ var _header: Label = null
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# anchors *and offsets* — under a CanvasLayer, anchors alone leave a
+	# zero-size rect pinned top-left, which is why it wasn't centring.
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = false
 
 	# A full-rect CenterContainer keeps the panel centred at any resolution.
 	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(center)
 
@@ -57,6 +59,9 @@ func open_for_hold(hold: Node) -> void:
 	if _ship != null and _ship.has_signal("cargo_changed") \
 			and not _ship.cargo_changed.is_connected(_on_cargo_changed):
 		_ship.cargo_changed.connect(_on_cargo_changed)
+	# Re-assert full-rect in case we were added to the tree before the
+	# viewport size settled.
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_rebuild()
 	visible = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
