@@ -84,7 +84,7 @@ res://
 │       ├── gun_overlay.tscn                   # Crosshair / elevation / reload bar (gunner only)
 │       └── trade_panel.tscn                   # Buy/sell modal at a market
 └── scripts/
-    ├── main.gd  network_manager.gd (autoload)  game_state.gd  audio_manager.gd
+    ├── main.gd  network_manager.gd (autoload)  game_state.gd  audio_manager.gd  regions.gd (autoload)
     ├── ship_controller.gd                     # Locomotion + damage model + economy state
     ├── steam_plant.gd                         # Coal → heat → pressure → power
     ├── player_controller.gd                   # Movement, look, interact, carry, helm/gun lock
@@ -443,23 +443,67 @@ hooks: `bandit_director` multiplies spawn chance by storm intensity
 
 ---
 
+## Regions (Tier 2, T2.0)
+
+The desert is divided into named **regions** (biomes) by a single autoload,
+`Regions` (`scripts/autoloads/regions.gd`). v1 ships three: **dunes** (the
+baseline that matches the old visual), **salt_flats** (flatter, paler,
+`thirst_mult` 1.5), **badlands** (rougher, darker, `rolling_resistance_mult`
+1.8). Each `RegionData` row sets `noise_frequency`/`octaves`/`lacunarity`
++ `height_scale`, a `tint` Color, and a `hazard_modifiers` Dictionary.
+
+The (x, z) → region mapping is behind a strategy so it can be swapped
+without touching consumers:
+
+- `RegionSampler.sample(x, z) → Dictionary[id: float]` — weights sum to ~1.0.
+- `NoiseRegionSampler` (v1) — a low-frequency simplex banded by thresholds;
+  inside a small halfwidth around each threshold it returns two regions
+  with a linear blend so borders fade instead of snapping. Seeded from
+  `Regions.world_seed`, which `ChunkManager._ready` sets from its
+  `noise_seed` export — every peer's region field agrees deterministically.
+- `TextureRegionSampler` is planned for T2.1 (hand-drawn map of a finite
+  world) and only requires `Regions.set_sampler(...)`.
+
+Public API (read it from anywhere; the chart system in T2.3 will use the
+same calls):
+
+- `Regions.region_weights(x, z)` — the weight dict, for blending heights /
+  tints inside `ChunkGen`.
+- `Regions.region_at(x, z)` — dominant id, for point queries: where the
+  ship is, where a prop got placed, future chart pins.
+- `Regions.get_modifier(id, key, default=1.0)` — read one hazard mod.
+- `Regions.get_modifier_at(x, z, key, default=1.0)` — convenience for the
+  dominant region's modifier at a point. Used by `player_controller`
+  (`HAZ_THIRST_MULT`) and `ship_controller` (`HAZ_ROLLING_MULT`).
+
+Hazards are **point queries at the ship's `world_offset`**, not per-chunk —
+so a single crew on one ship all share the same regional climate even
+while standing in different scene-local spots near the deck.
+
+---
+
 ## Chunk system & bespoke editor
 
 > **Planned (ROADMAP → Tier 2):** the world becomes finite & bounded with
-> a deterministic **region/biome field** feeding `ChunkGen` (per-region
-> terrain/props/hazards), border biomes (coast/mountains/jungle), and a
-> curated **POI/settlement registry** replacing the arbitrary
-> `HAND_PLACED_OASES` chunk keys. The notes below describe the *current*
-> shipped behaviour.
+> border biomes (coast/mountains/jungle) and a curated **POI/settlement
+> registry** replacing the arbitrary `HAND_PLACED_OASES` chunk keys. The
+> region/biome field (T2.0) is already shipped — see "Regions" above.
 
 `chunk_manager.gd` streams `chunk_size` tiles within `load_radius`. All
 mesh/prop construction is **node-free static code in `ChunkGen`**
 (`chunk_gen.gd`) so the in-editor preview is bit-identical to the streamed
-runtime. Heights are sampled at world-grid positions (seamless borders);
-prop layout is deterministic (`rng.seed = hash(key)` — **draw order must not
-change** or previews diverge). Oases are hand-placed
-(`ChunkGen.HAND_PLACED_OASES`, mirrored from the manager); water towers are
-seeded/hand-placed outside the load radius.
+runtime. Heights and terrain tint at every vertex are a **per-vertex
+weighted blend** of every active region's own noise + colour, with weights
+read from `Regions.region_weights` — so a chunk straddling two regions
+shows a smooth gradient instead of a chunk-aligned step. Tint is painted
+via vertex colour on a StandardMaterial3D with `vertex_color_use_as_albedo`.
+Adjacent chunks still share edge samples (noise is evaluated at world-grid
+positions), so borders stay seamless. Prop layout is deterministic
+(`rng.seed = hash(key)` — **draw order must not change** or previews
+diverge). Oases are hand-placed (`ChunkGen.HAND_PLACED_OASES`, mirrored
+from the manager); water towers are seeded/hand-placed outside the load
+radius. Per-region FastNoiseLite instances are lazily cached on `ChunkGen`
+keyed by `region_id × world_seed`.
 
 **Bespoke overrides** resolve through an optional `ChunkRegistry`
 (`res://chunks/registry.tres`, auto-loaded if present):
@@ -474,8 +518,11 @@ The **chunk_editor** plugin (`addons/chunk_editor/`, enabled in
 project.godot) adds a "Chunks" dock. It previews a chunk under the open
 scene's root, lets you sculpt/add/delete, and on Save delegates to
 `ChunkAuthoring` (`chunk_authoring.gd`) to edge-lock, pack/duplicate, write
-`chunks/scenes|overlays/`, and merge the registry entry. The dock params
-must match `ChunkManager`'s exports or previews diverge.
+`chunks/scenes|overlays/`, and merge the registry entry. The dock's
+`noise_seed` syncs into `Regions.set_world_seed` before each load/save so
+the preview reflects the actual region(s) at that chunk; per-region noise
+params (frequency / octaves / lacunarity / height_scale) live in
+`Regions.gd` and are no longer dock-tweakable.
 
 ---
 

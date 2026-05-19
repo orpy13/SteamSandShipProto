@@ -23,6 +23,7 @@ config/features=PackedStringArray("4.6")
 GameState="*res://scripts/autoloads/game_state.gd"
 NetworkManager="*res://scripts/network_manager.gd"
 AudioManager="*res://scripts/autoloads/audio_manager.gd"
+Regions="*res://scripts/autoloads/regions.gd"
 
 [display]
 

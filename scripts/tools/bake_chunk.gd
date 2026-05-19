@@ -14,12 +14,7 @@ extends SceneTree
 
 const CHUNK_SIZE := 80.0
 const SUBDIVISIONS := 16
-const HEIGHT_SCALE := 3.5
 const NOISE_SEED := 1337
-const NOISE_FREQUENCY := 0.006
-const NOISE_OCTAVES := 2
-const NOISE_LACUNARITY := 2.0
-const NOISE_GAIN := 0.5
 const LOAD_RADIUS := 3
 const SPAWN_MARGIN := 8.0
 
@@ -30,15 +25,16 @@ func _init() -> void:
 		quit(1)
 		return
 	var key := Vector2i(int(args[0]), int(args[1]))
-	var noise := ChunkGen.make_noise(NOISE_SEED, NOISE_FREQUENCY,
-			NOISE_OCTAVES, NOISE_LACUNARITY, NOISE_GAIN)
+	# Region noise params live on Regions; pass the world seed through so the
+	# bake matches a running session that uses the same noise_seed export.
+	Regions.set_world_seed(NOISE_SEED)
 
-	var body := ChunkGen.bake_chunk_scene(noise, key, CHUNK_SIZE, SUBDIVISIONS,
-			HEIGHT_SCALE, LOAD_RADIUS, SPAWN_MARGIN)
+	var body := ChunkGen.bake_chunk_scene(key, CHUNK_SIZE, SUBDIVISIONS,
+			LOAD_RADIUS, SPAWN_MARGIN)
 	# save_scene_chunk edge-locks, packs and registers. Edge-lock is a no-op on
 	# a fresh bake (edges already match) but exercises the editor save path.
-	var scene_path := ChunkAuthoring.save_scene_chunk(body, noise, key,
-			CHUNK_SIZE, SUBDIVISIONS, HEIGHT_SCALE)
+	var scene_path := ChunkAuthoring.save_scene_chunk(body, key,
+			CHUNK_SIZE, SUBDIVISIONS)
 	body.free()
 	if scene_path == "":
 		push_error("bake_chunk: save failed")

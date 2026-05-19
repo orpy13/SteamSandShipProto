@@ -269,9 +269,15 @@ func _physics_process(delta: float) -> void:
 		current_speed += -grade_gravity * grade_sin * delta
 
 	# Grade rolling resistance always nibbles a little speed (steeper = more).
+	# Region surface modifier (T2.0): badlands gravel/rock drags harder than
+	# packed dunes; flats are neutral. The grade still has to be non-zero for
+	# any drag to apply (otherwise a stationary hull on flat ground would
+	# bleed speed by region alone).
 	if not is_zero_approx(grade_sin):
+		var region_mult := Regions.get_modifier_at(world_offset.x, world_offset.z,
+				Regions.HAZ_ROLLING_MULT, 1.0)
 		current_speed = move_toward(current_speed, 0.0,
-				grade_rolling_resistance * absf(grade_sin) * delta)
+				grade_rolling_resistance * region_mult * absf(grade_sin) * delta)
 
 	current_speed = clampf(current_speed,
 			-eff_max_reverse, eff_max_forward * max_downhill_overspeed)

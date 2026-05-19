@@ -16,14 +16,14 @@ extends VBoxContainer
 
 var plugin: EditorPlugin
 
+## Params the dock still exposes. Region-specific noise (frequency / octaves /
+## lacunarity / height_scale) moved to the Regions autoload (Tier 2, T2.0) —
+## per-chunk preview now reflects whatever region(s) the chosen (X, Z) lands
+## in, so those knobs would lie about what the runtime renders.
 const _PARAM_DEFS := [
 	["chunk_size", 80.0, false],
 	["subdivisions", 16.0, true],
-	["height_scale", 3.5, false],
 	["noise_seed", 1337.0, true],
-	["noise_frequency", 0.006, false],
-	["noise_octaves", 2.0, true],
-	["noise_lacunarity", 2.0, false],
 	["load_radius", 3.0, true],
 	["placeholder_spawn_margin", 8.0, false],
 ]
@@ -40,7 +40,6 @@ var _preview: Node3D = null
 var _key: Vector2i
 var _is_scene_mode := false
 var _baseline := 0
-var _noise: FastNoiseLite
 var _added_counter := 1000
 
 var _host: VBoxContainer
@@ -155,9 +154,10 @@ func _edited_root() -> Node:
 		return null
 	return plugin.get_editor_interface().get_edited_scene_root()
 
-func _build_noise() -> FastNoiseLite:
-	return ChunkGen.make_noise(int(_p("noise_seed")), _p("noise_frequency"),
-			int(_p("noise_octaves")), _p("noise_lacunarity"), 0.5)
+## Sync the dock's `noise_seed` spinbox into Regions so the preview matches
+## what a running session with the same seed would render.
+func _sync_world_seed() -> void:
+	Regions.set_world_seed(int(_p("noise_seed")))
 
 func _stamp(node: Node, root: Node) -> void:
 	for c in node.get_children():
@@ -178,18 +178,17 @@ func _on_load() -> void:
 	_clear_preview()
 	_key = Vector2i(int(_x_spin.value), int(_z_spin.value))
 	_is_scene_mode = _mode.selected == 1
-	_noise = _build_noise()
+	_sync_world_seed()
 	var cs := _p("chunk_size")
 	var sub := int(_p("subdivisions"))
-	var hs := _p("height_scale")
 
 	if _is_scene_mode:
-		_preview = ChunkGen.bake_chunk_scene(_noise, _key, cs, sub, hs,
+		_preview = ChunkGen.bake_chunk_scene(_key, cs, sub,
 				int(_p("load_radius")),
 				_p("placeholder_spawn_margin"))
 		_baseline = 0
 	else:
-		var built := ChunkGen.build_chunk_body(_noise, _key, cs, sub, hs)
+		var built := ChunkGen.build_chunk_body(_key, cs, sub)
 		_preview = built["body"]
 		var records := ChunkGen.build_object_records(_key, built["heights"],
 				built["n"], built["step"], built["half"],
@@ -235,8 +234,9 @@ func _on_save() -> void:
 		return
 	var path := ""
 	if _is_scene_mode:
-		path = ChunkAuthoring.save_scene_chunk(_preview, _noise, _key,
-				_p("chunk_size"), int(_p("subdivisions")), _p("height_scale"))
+		_sync_world_seed()
+		path = ChunkAuthoring.save_scene_chunk(_preview, _key,
+				_p("chunk_size"), int(_p("subdivisions")))
 	else:
 		path = ChunkAuthoring.save_overlay(_key, _preview, _baseline)
 	if path == "":

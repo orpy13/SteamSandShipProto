@@ -4,6 +4,12 @@ extends RefCounted
 # Shared, node-free chunk generation. Both the runtime streamer
 # (chunk_manager.gd) and the editor authoring tools call into here so a
 # previewed chunk is bit-identical to a streamed one.
+#
+# Region-aware (Tier 2, T2.0): the heightfield is a per-vertex weighted blend
+# of every region's own noise, and the terrain tint is a per-vertex blend of
+# region colours (painted via vertex colours; the material multiplies by
+# white so the per-vertex blend is the visible albedo). See
+# `scripts/autoloads/regions.gd` for the sampler that drives this.
 
 const WATER_TOWER_SCENE: PackedScene = preload("res://scenes/interactables/water_tower.tscn")
 const OASIS_SCENE: PackedScene = preload("res://scenes/world/oasis.tscn")
@@ -17,30 +23,66 @@ const HAND_PLACED_OASES: Dictionary = {
 	Vector2i(-10, 8): "caravan",
 }
 
-# Build the noise sampler used for every chunk height field.
-# NOTE: fractal_gain is intentionally fixed at 0.5 to mirror the previous
-# inline behaviour (the noise_gain export was never wired up).
-static func make_noise(noise_seed: int, noise_frequency: float,
-		noise_octaves: int, noise_lacunarity: float, _noise_gain: float) -> FastNoiseLite:
+# Per-region FastNoiseLite cache. Keyed by "{region_id}:{world_seed}" so a
+# world-seed change invalidates entries automatically. Static so the runtime
+# streamer and the editor preview share the same instances (parity).
+static var _noise_cache: Dictionary = {}
+
+
+## Get (or lazily build) the FastNoiseLite that drives a region's heightfield.
+## Seeds combine the region id and `Regions.world_seed` so each region has its
+## own pattern that still moves deterministically when the world seed changes.
+static func _region_noise(rd) -> FastNoiseLite:
+	var seed_value: int = Regions.world_seed
+	var key := "%s:%d" % [rd.id, seed_value]
+	if _noise_cache.has(key):
+		return _noise_cache[key]
 	var noise := FastNoiseLite.new()
 	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	noise.seed = noise_seed
-	noise.frequency = noise_frequency
-	noise.fractal_octaves = noise_octaves
-	noise.fractal_lacunarity = noise_lacunarity
+	noise.seed = seed_value ^ hash(rd.id)
+	noise.frequency = rd.noise_frequency
+	noise.fractal_octaves = rd.noise_octaves
+	noise.fractal_lacunarity = rd.noise_lacunarity
 	noise.fractal_gain = 0.5
+	_noise_cache[key] = noise
 	return noise
 
-# Same height field used to build chunk meshes.
-static func sample_height(noise: FastNoiseLite, height_scale: float,
-		world_x: float, world_z: float) -> float:
-	return noise.get_noise_2d(world_x, world_z) * height_scale
+
+## Blended height at a world point. height = Σ weight_i × noise_i(x,z) × scale_i.
+## Public — `ChunkManager.sample_height` forwards here, so ship terrain-follow
+## and the chunk meshes read from the same blend.
+static func sample_height(world_x: float, world_z: float) -> float:
+	var weights := Regions.region_weights(world_x, world_z)
+	var h := 0.0
+	for id in weights.keys():
+		var w: float = float(weights[id])
+		if w <= 0.0:
+			continue
+		var rd = Regions.get_data(String(id))
+		h += w * _region_noise(rd).get_noise_2d(world_x, world_z) * rd.height_scale
+	return h
+
+
+## Blended terrain tint at a world point (vertex-colour input).
+static func sample_tint(world_x: float, world_z: float) -> Color:
+	var weights := Regions.region_weights(world_x, world_z)
+	var c := Color(0.0, 0.0, 0.0, 1.0)
+	for id in weights.keys():
+		var w: float = float(weights[id])
+		if w <= 0.0:
+			continue
+		var rd = Regions.get_data(String(id))
+		c.r += rd.tint.r * w
+		c.g += rd.tint.g * w
+		c.b += rd.tint.b * w
+	return Color(c.r, c.g, c.b, 1.0)
+
 
 # Build the height-mapped mesh for one chunk key.
 # Returns { mesh, heights, n, step, half } — heights/n/step/half are reused
 # by the caller for object placement so nothing is recomputed.
-static func build_mesh(noise: FastNoiseLite, key: Vector2i,
-		chunk_size: float, subdivisions: int, height_scale: float) -> Dictionary:
+static func build_mesh(key: Vector2i,
+		chunk_size: float, subdivisions: int) -> Dictionary:
 	var n: int = subdivisions + 1
 	var step: float = chunk_size / float(subdivisions)
 	var half: float = chunk_size * 0.5
@@ -48,15 +90,19 @@ static func build_mesh(noise: FastNoiseLite, key: Vector2i,
 	var origin_x: float = key.x * chunk_size
 	var origin_z: float = key.y * chunk_size
 
-	# Evaluated at chunk-grid world positions so adjacent chunks share edge
-	# values and produce seamless borders with no extra stitching.
+	# Sample heights + tints at chunk-grid world positions so adjacent chunks
+	# share edge values (seamless borders) AND share the same region-blend.
 	var heights := PackedFloat32Array()
 	heights.resize(n * n)
+	var tints := PackedColorArray()
+	tints.resize(n * n)
 	for j in range(n):
 		for i in range(n):
 			var wx := origin_x + i * step
 			var wz := origin_z + j * step
-			heights[j * n + i] = noise.get_noise_2d(wx, wz) * height_scale
+			var idx := j * n + i
+			heights[idx] = sample_height(wx, wz)
+			tints[idx] = sample_tint(wx, wz)
 
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -64,8 +110,10 @@ static func build_mesh(noise: FastNoiseLite, key: Vector2i,
 		for i in range(n):
 			var lx := float(i) * step - half
 			var lz := float(j) * step - half
+			var idx := j * n + i
 			st.set_uv(Vector2(float(i) / subdivisions, float(j) / subdivisions))
-			st.add_vertex(Vector3(lx, heights[j * n + i], lz))
+			st.set_color(tints[idx])
+			st.add_vertex(Vector3(lx, heights[idx], lz))
 	# Winding: v00→v01→v10 and v01→v11→v10 both produce a +Y normal.
 	for j in range(subdivisions):
 		for i in range(subdivisions):
@@ -86,16 +134,15 @@ static func build_mesh(noise: FastNoiseLite, key: Vector2i,
 		"half": half,
 	}
 
-const TERRAIN_ALBEDO := Color(0.551, 0.488, 0.333, 1.0)
 
 # Assemble the StaticBody3D for one chunk: noise mesh + material + trimesh
 # collision, named/grouped/positioned to the runtime contract. Shared by the
 # runtime streamer and the editor bake so a baked scene is bit-identical to a
 # streamed procedural chunk. Objects are NOT added here (the caller owns prop
 # spawning + overlay merge). Returns { body, heights, n, step, half }.
-static func build_chunk_body(noise: FastNoiseLite, key: Vector2i,
-		chunk_size: float, subdivisions: int, height_scale: float) -> Dictionary:
-	var gen := build_mesh(noise, key, chunk_size, subdivisions, height_scale)
+static func build_chunk_body(key: Vector2i,
+		chunk_size: float, subdivisions: int) -> Dictionary:
+	var gen := build_mesh(key, chunk_size, subdivisions)
 	var arr_mesh: ArrayMesh = gen["mesh"]
 	var half: float = gen["half"]
 
@@ -107,8 +154,12 @@ static func build_chunk_body(noise: FastNoiseLite, key: Vector2i,
 	var mesh_inst := MeshInstance3D.new()
 	mesh_inst.name = "Mesh"
 	mesh_inst.mesh = arr_mesh
+	# Region tints live on vertex colours, multiplied by white albedo — the
+	# StandardMaterial3D blend is what makes the boundary between regions read
+	# as a smooth gradient instead of a chunk-aligned step.
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = TERRAIN_ALBEDO
+	mat.vertex_color_use_as_albedo = true
+	mat.albedo_color = Color.WHITE
 	mat.roughness = 1.0
 	mat.metallic = 0.0
 	mesh_inst.material_override = mat
@@ -134,10 +185,10 @@ static func build_chunk_body(noise: FastNoiseLite, key: Vector2i,
 # body plus its deterministic props, all parented and owner-stamped so the
 # tree can be PackedScene.pack()'d. Edges are correct by construction here;
 # call lock_chunk_edges() again at save time after the mesh is hand-edited.
-static func bake_chunk_scene(noise: FastNoiseLite, key: Vector2i,
-		chunk_size: float, subdivisions: int, height_scale: float,
+static func bake_chunk_scene(key: Vector2i,
+		chunk_size: float, subdivisions: int,
 		load_radius: int, placeholder_spawn_margin: float) -> StaticBody3D:
-	var built := build_chunk_body(noise, key, chunk_size, subdivisions, height_scale)
+	var built := build_chunk_body(key, chunk_size, subdivisions)
 	var body: StaticBody3D = built["body"]
 	var objects := build_object_records(key, built["heights"], built["n"],
 			built["step"], built["half"], load_radius,
@@ -153,13 +204,13 @@ static func _stamp_owner(node: Node, root: Node) -> void:
 		_stamp_owner(child, root)
 
 # Re-snap the boundary vertex ring of an already-built (possibly hand-edited)
-# grid chunk mesh back to the noise field, so a bespoke scene chunk stays
-# seamless against its procedural neighbours no matter what was sculpted
+# grid chunk mesh back to the regional heightfield, so a bespoke scene chunk
+# stays seamless against its procedural neighbours no matter what was sculpted
 # inside. Assumes the mesh still has the n*n grid topology bake produced
 # (sculpt interiors; do not add/remove vertices). Rebuilds normals, tangents
 # and the trimesh collision. Mutates the body in place.
-static func lock_chunk_edges(body: Node3D, noise: FastNoiseLite, key: Vector2i,
-		chunk_size: float, _subdivisions: int, height_scale: float) -> bool:
+static func lock_chunk_edges(body: Node3D, key: Vector2i,
+		chunk_size: float, _subdivisions: int) -> bool:
 	var mesh_inst: MeshInstance3D = body.get_node_or_null("Mesh") as MeshInstance3D
 	if mesh_inst == null or not (mesh_inst.mesh is ArrayMesh):
 		push_warning("ChunkGen.lock_chunk_edges: no grid Mesh found")
@@ -168,6 +219,7 @@ static func lock_chunk_edges(body: Node3D, noise: FastNoiseLite, key: Vector2i,
 	var arrays: Array = src.surface_get_arrays(0)
 	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
 	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
 	if indices.is_empty():
 		push_warning("ChunkGen.lock_chunk_edges: mesh is not indexed")
@@ -176,8 +228,8 @@ static func lock_chunk_edges(body: Node3D, noise: FastNoiseLite, key: Vector2i,
 	var origin_x: float = key.x * chunk_size
 	var origin_z: float = key.y * chunk_size
 	# A grid vertex is on the chunk boundary iff its local x or z sits on the
-	# ±half edge. This is array-order independent — SurfaceTool.commit() does
-	# not preserve insertion order, so we must key off geometry, not index.
+	# ±half edge. Array-order independent — SurfaceTool.commit() doesn't
+	# preserve insertion order, so we must key off geometry, not index.
 	var eps: float = 0.001
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -185,12 +237,23 @@ static func lock_chunk_edges(body: Node3D, noise: FastNoiseLite, key: Vector2i,
 		var v: Vector3 = verts[vi]
 		var on_x_edge := absf(absf(v.x) - half) < eps
 		var on_z_edge := absf(absf(v.z) - half) < eps
+		var wx := origin_x + (v.x + half)
+		var wz := origin_z + (v.z + half)
 		if on_x_edge or on_z_edge:
 			# local (x,z) → world: corner (-half,-half) maps to (origin_x, origin_z).
-			v.y = noise.get_noise_2d(origin_x + (v.x + half),
-					origin_z + (v.z + half)) * height_scale
+			v.y = sample_height(wx, wz)
 		if uvs.size() == verts.size():
 			st.set_uv(uvs[vi])
+		# Re-paint region tint on edge verts too, so the seam blend reads.
+		# Interior tints we preserve (the user may have authored a chunk that
+		# manipulates colour) — but in v1 there's no sculpt UI for colour, so
+		# both branches end up identical.
+		if on_x_edge or on_z_edge:
+			st.set_color(sample_tint(wx, wz))
+		elif colors.size() == verts.size():
+			st.set_color(colors[vi])
+		else:
+			st.set_color(sample_tint(wx, wz))
 		st.add_vertex(v)
 	for idx in indices:
 		st.add_index(idx)

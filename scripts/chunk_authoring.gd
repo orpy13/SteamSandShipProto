@@ -33,10 +33,9 @@ static func register_entry(key: Vector2i, mode: String, path: String) -> int:
 # Tier-1: edge-lock, pack a self-owned duplicate, save, register as "scene".
 # Duplicating decouples the saved file from whatever scene currently owns the
 # preview node in the editor.
-static func save_scene_chunk(body: Node3D, noise: FastNoiseLite, key: Vector2i,
-		chunk_size: float, subdivisions: int, height_scale: float) -> String:
-	ChunkGen.lock_chunk_edges(body, noise, key, chunk_size, subdivisions,
-			height_scale)
+static func save_scene_chunk(body: Node3D, key: Vector2i,
+		chunk_size: float, subdivisions: int) -> String:
+	ChunkGen.lock_chunk_edges(body, key, chunk_size, subdivisions)
 	var dup: Node3D = body.duplicate()
 	ChunkGen._stamp_owner(dup, dup)
 	var packed := PackedScene.new()

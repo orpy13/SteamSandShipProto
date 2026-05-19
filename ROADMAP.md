@@ -170,15 +170,21 @@ are re-slotted to build on it.
 
 ### Work breakdown
 
-**T2.0 — Region/biome field (foundation)**
-- Deterministic `region_at(world_x, world_z)` (low-freq noise or a hand
-  region map) → region id. A region table sets `ChunkGen` noise params,
-  terrain tint, prop table, and hazard/feel modifiers (e.g. salt flats
-  spike thirst; badlands raise rolling resistance / wear). Wires into the
-  shipped vehicle-dynamics, survival and weather systems.
-- `chunk_gen.gd` / `chunk_manager.gd` consume region; **must stay
-  deterministic and match the bespoke-editor preview** (existing parity
-  contract — update the editor dock params too).
+**T2.0 — Region/biome field (foundation) — SHIPPED**
+- `Regions` autoload (`scripts/autoloads/regions.gd`): three v1 regions
+  (`dunes`, `salt_flats`, `badlands`) with per-region noise params, tint,
+  hazard modifiers. Sampler strategy (`RegionSampler` interface,
+  `NoiseRegionSampler` v1) so a `TextureRegionSampler` (T2.1) drops in
+  via `set_sampler`.
+- `chunk_gen.gd` does **per-vertex weighted blend** of region heights and
+  paints region tints via vertex colour — smooth borders, no chunk seams.
+  Per-region `FastNoiseLite` cached on `ChunkGen` keyed by `region × seed`.
+- Hazards wired: `HAZ_THIRST_MULT` (player_controller), `HAZ_ROLLING_MULT`
+  (ship_controller). Both are point queries at the ship's `world_offset`.
+- Editor dock now syncs its `noise_seed` into `Regions.world_seed`; the
+  per-region noise knobs that used to live on the dock moved into
+  `Regions.gd`. Preview parity preserved.
+- Spec sync: "Regions" section in `instructions.md`.
 
 **T2.1 — World bounds + border biomes**
 - Define world extents in `world_offset` space.

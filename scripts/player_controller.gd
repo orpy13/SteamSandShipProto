@@ -766,8 +766,18 @@ func _tick_survival(delta: float) -> void:
 	var exposure := exposed_drain_mult if exposed else 1.0
 
 	hunger = clampf(hunger - hunger_drain * exposure * delta, 0.0, 100.0)
-	var thirst_rate := thirst_drain * (1.0 + heat_thirst_mult * daylight \
-			+ storm_thirst_mult * storm) * exposure
+	# Region thirst modifier (T2.0) — salt flats etc. drain faster. Read the
+	# *ship's* world position so all crew share the same regional climate,
+	# not their per-player scene-local spot (which is always near 0).
+	var region_thirst_mult := 1.0
+	var ship := get_tree().get_first_node_in_group("ship")
+	if ship != null and "world_offset" in ship:
+		region_thirst_mult = Regions.get_modifier_at(
+				float(ship.world_offset.x), float(ship.world_offset.z),
+				Regions.HAZ_THIRST_MULT, 1.0)
+	var thirst_rate := thirst_drain * region_thirst_mult \
+			* (1.0 + heat_thirst_mult * daylight + storm_thirst_mult * storm) \
+			* exposure
 	thirst = clampf(thirst - thirst_rate * delta, 0.0, 100.0)
 
 	var active := velocity.length() > 0.5 or not carried_item_type.is_empty()

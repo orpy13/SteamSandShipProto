@@ -28,12 +28,10 @@ extends Node3D
 @export var chunk_size: float = 80.0
 @export var load_radius: int = 3          # chunks loaded in each direction from ship
 @export var subdivisions: int = 16        # vertices per side = subdivisions + 1
-@export var height_scale: float = 3.5     # noise amplitude — dune height in metres
+## Shared world seed for the regional noise field (Regions autoload). Per-region
+## noise frequencies / octaves / amplitudes are defined in `regions.gd`; this
+## seed is the only piece of world state ChunkManager still owns.
 @export var noise_seed: int = 1337
-@export var noise_frequency: float = 0.006
-@export var noise_octaves: int = 2
-@export var noise_lacunarity: float = 2.0
-@export var noise_gain: float = 0.5
 # Inset used when picking random positions for chunk objects so they don't
 # straddle chunk borders.
 @export var placeholder_spawn_margin: float = 8.0
@@ -51,14 +49,14 @@ var _chunks: Dictionary = {}  # Vector2i → StaticBody3D
 var _chunk_data: Dictionary = {}
 
 var _ship: Node3D = null
-var _noise: FastNoiseLite
 
 
-## Configure the noise sampler and load the chunks around the origin.
+## Hand our world seed to the Regions autoload (so the regional noise field
+## stays deterministic from the same export) and load the chunks around the
+## origin.
 func _ready() -> void:
 	add_to_group("terrain")
-	_noise = ChunkGen.make_noise(noise_seed, noise_frequency, noise_octaves,
-			noise_lacunarity, noise_gain)
+	Regions.set_world_seed(noise_seed)
 	if chunk_registry == null and ResourceLoader.exists(DEFAULT_REGISTRY_PATH):
 		chunk_registry = load(DEFAULT_REGISTRY_PATH)
 	_update_chunks(Vector3.ZERO)
@@ -66,10 +64,9 @@ func _ready() -> void:
 
 ## Public hook for ship_controller.gd. Returns dune height at a virtual world
 ## (x, z) so the ship can pitch/roll in response to the terrain underneath it.
+## Forwards to ChunkGen, which blends every active region's contribution.
 func sample_height(world_x: float, world_z: float) -> float:
-	if _noise == null:
-		return 0.0
-	return ChunkGen.sample_height(_noise, height_scale, world_x, world_z)
+	return ChunkGen.sample_height(world_x, world_z)
 
 
 ## The world-scroll trick (see file header). Every physics frame: rotate and
@@ -126,8 +123,7 @@ func _spawn_chunk(key: Vector2i) -> Node3D:
 	if String(entry.get("mode", "")) == "scene":
 		return _spawn_scene_chunk(key, String(entry.get("path", "")))
 
-	var built := ChunkGen.build_chunk_body(_noise, key, chunk_size,
-			subdivisions, height_scale)
+	var built := ChunkGen.build_chunk_body(key, chunk_size, subdivisions)
 	var body: StaticBody3D = built["body"]
 	var heights: PackedFloat32Array = built["heights"]
 	var n: int = built["n"]

@@ -37,10 +37,6 @@ light_energy = 1.1
 shadow_enabled = true
 
 [node name="WorldMap" parent="." unique_id=2139521930 instance=ExtResource("2")]
-height_scale = 5.0
-noise_octaves = 1
-noise_lacunarity = 3.0
-noise_gain = 0.1
 
 [node name="Ship" parent="." unique_id=841078357 instance=ExtResource("3")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 16.260126, 0)
