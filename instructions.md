@@ -372,6 +372,13 @@ reads `ship.cargo` directly — no need to physically haul crates back.
 
 ## Day/night & weather
 
+> **Planned (ROADMAP → Tier 2 navigation):** the always-on HUD `X/Z`
+> readout will be replaced by HDG + speed + a dead-reckoning *estimate*;
+> precise position will be earned via a **chart table** + **telescope**
+> (manned, deck-gun pattern) + the sun/pole-star compass, with landmark
+> arrival as a fix. The sun/star compass below is the foundation that
+> system builds on.
+
 **Renderer**: the project runs **Forward+** (`rendering_method` and
 `.mobile` both `forward_plus`) so volumetric fog and proper sky/light control
 are available. No mobile/web target.
@@ -437,6 +444,13 @@ hooks: `bandit_director` multiplies spawn chance by storm intensity
 ---
 
 ## Chunk system & bespoke editor
+
+> **Planned (ROADMAP → Tier 2):** the world becomes finite & bounded with
+> a deterministic **region/biome field** feeding `ChunkGen` (per-region
+> terrain/props/hazards), border biomes (coast/mountains/jungle), and a
+> curated **POI/settlement registry** replacing the arbitrary
+> `HAND_PLACED_OASES` chunk keys. The notes below describe the *current*
+> shipped behaviour.
 
 `chunk_manager.gd` streams `chunk_size` tiles within `load_radius`. All
 mesh/prop construction is **node-free static code in `ChunkGen`**

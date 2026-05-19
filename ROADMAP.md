@@ -127,17 +127,106 @@ emergent from T1.2+T1.5. T1.7/T1.8 trail each feature.
 
 ---
 
-## Future (post–Tier 1, not scheduled)
+## Tier 2 — World structure (the world becomes a place)
 
-- **World impact**: purchase buildings at settlements; settlement reputation
-  affecting prices/access.
+The top priority after Tier 1. Today the world is infinite deterministic
+dune-noise with a few oases pinned to arbitrary chunk keys — no geography,
+so the sun-compass and "sail to a settlement" loop have nothing to navigate
+*toward*. Tier 2 adds the missing structural layer; the Future items below
+are re-slotted to build on it.
+
+### Locked decisions
+- **Finite, bounded world.** A designed map enclosed by border biomes:
+  **coast** (hard edge), **mountains** (soft — unclimbable via the shipped
+  grade dynamics), **jungle** (passable at a cost). Interior = biomes +
+  curated settlements. Not a major restructure — borders are just the
+  region field at the edges (see T2.1).
+- **Position is earned.** Drop the always-on HUD `X/Z`. You get heading +
+  speed + a dead-reckoning *estimate* whose error grows since the last
+  fix; precise position comes from the chart, telescope, sun/pole star,
+  and reaching known landmarks.
+- **Hybrid placement.** Curated named settlements at fixed world coords
+  (replacing `HAND_PLACED_OASES`) + deterministic seeded minor POIs
+  (salvage / wrecks / refuel caches / ruins) scattered between.
+- The single architectural lever: a **region/biome field** feeding
+  `ChunkGen` + a **POI/settlement registry**, revealed progressively via
+  the chart/telescope. Consistent with the world-scroll / streaming /
+  determinism model and the bespoke-chunk editor.
+
+### Work breakdown
+
+**T2.0 — Region/biome field (foundation)**
+- Deterministic `region_at(world_x, world_z)` (low-freq noise or a hand
+  region map) → region id. A region table sets `ChunkGen` noise params,
+  terrain tint, prop table, and hazard/feel modifiers (e.g. salt flats
+  spike thirst; badlands raise rolling resistance / wear). Wires into the
+  shipped vehicle-dynamics, survival and weather systems.
+- `chunk_gen.gd` / `chunk_manager.gd` consume region; **must stay
+  deterministic and match the bespoke-editor preview** (existing parity
+  contract — update the editor dock params too).
+
+**T2.1 — World bounds + border biomes**
+- Define world extents in `world_offset` space.
+- Coast: terrain below a sea level + a water plane (Forward+) → hard edge.
+- Mountains: height ramps past the climbable grade (reuses
+  `grade_gravity`/`grade_speed_sensitivity`) → diegetic soft wall, no
+  invisible barriers.
+- Jungle: dense collidable props (reuses the `_move_virtual_offset`
+  hard-stop) — slow, hazardous, but unique resources.
+- Hero edge sites authored via the bespoke chunk editor.
+
+**T2.2 — POI / settlement registry (hybrid)**
+- Curated registry: named settlements at fixed world coords with identity
+  (services: market / fuel / water / provisions / repair / contracts).
+  Replaces arbitrary `HAND_PLACED_OASES`.
+- Deterministic minor POIs seeded per region between settlements (extends
+  the existing water-tower seeding, region-aware).
+- Resolved through the chunk registry/overlay tiers so streaming spawns
+  them; bespoke editor authors the hero settlements.
+
+**T2.3 — Navigation overhaul (earn position)**
+- HUD: replace live `X/Z` with HDG + speed + a dead-reckoning estimate
+  (integrated from heading/speed) with growing error since last fix.
+- **Chart table** interactable: shared, host-authoritative crew state —
+  discovered POIs + telescope sightings + the estimate + player-placed
+  markers/route lines. Reaching a landmark/settlement = a position fix
+  (error resets).
+- **Telescope** interactable: manned (deck-gun pattern — lock player, swap
+  to a zoomed traversing camera). Spotting reveals POIs/landmarks/storms
+  as bearing markers / chart pins; range cut by storm + night
+  (weather/day-night synergy).
+- Sun + pole star stay the coarse compass (already shipped).
+
+**T2.4 — Spec sync + re-slot Future**
+- Update `instructions.md` as pieces land (ongoing norm); adjust the
+  success-criteria/tests that referenced the live `X/Z` readout.
+
+### Dependencies
+T2.0 first (regions feed T2.1 borders and T2.2 POIs). T2.3 is largely
+independent but the chart is only interesting once T2.2 has POIs to find.
+
+### Open implementation details (decide while building)
+- World size/shape (rectangle vs disk) and border thickness.
+- Sea-level + water rendering (simple plane vs shader) for the coast.
+- Chart UI: scene vs code-built (cf. trade/cargo panels); dead-reckoning
+  error model (constant drift vs noise-walk); fix sources.
+- Telescope camera approach (FOV zoom vs separate cam) and spot test.
+- How the bespoke editor exposes per-region params.
+- Migration path off `HAND_PLACED_OASES` to the settlement registry.
+
+---
+
+## Future (re-slotted to build on Tier 2)
+
+- **Unique quests / contracts**: per-settlement jobs (find / deliver /
+  fetch) routed via the Tier 2 chart + settlement registry.
+- **World impact**: purchase buildings at settlements; per-settlement
+  reputation affecting prices/access.
 - **Dynamic market**: supply/demand price movement + per-settlement stock
   variety, replacing static `Goods.PRICES`.
-- **Unique quests / contracts**: per-location jobs — find a location,
-  deliver cargo, fetch cargo — using the navigational sun/stars as the
-  routing tool.
 - **Bandit overhaul**: smarter AI, multiple/escalating raiders, retreat,
-  loot/bounty — the parked T1.0 system, rebuilt to be fun.
+  loot/bounty — the parked T1.0 system, rebuilt; spawns from Tier 2
+  regions/POIs (bandit camps) rather than the parked timer.
 - **Food/drink variety**: multiple consumables with differing stat effects
   (the T1.5 data model already leaves room).
 - **Deck pseudo-forces**: sliding cargo / crew lean under accel/turn (deep
