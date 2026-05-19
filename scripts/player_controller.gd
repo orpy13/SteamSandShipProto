@@ -25,6 +25,12 @@ signal survival_changed(hunger: float, thirst: float, energy: float, dead: bool)
 @export var MOVEMENT_SPEED: float = 5.0
 @export var JUMP_VELOCITY: float = 4.5
 @export var MOUSE_SENSITIVITY: float = 0.002
+# ── Over-the-shoulder camera ────────────────────────────────────────────────
+@export var shoulder_offset: float = 0.6     # camera lateral offset (+ = right shoulder)
+@export var camera_height: float = 0.2        # camera vertical nudge on the arm
+@export var spring_collision_mask: int = 1    # world solids the arm pulls in front of
+# Degrees added to the character model's facing if it imports back-to-front.
+@export var model_yaw_offset_deg: float = 0.0
 @export var GRAVITY: float = 12.0
 
 # ── Survival (Tier 1, ROADMAP.md → T1.5) ─────────────────────────────────────
@@ -73,11 +79,18 @@ const PEER_COLORS: Array[Color] = [
 @onready var _camera: Camera3D = $SpringArm3D/Camera3D
 @onready var _spring: SpringArm3D = $SpringArm3D
 @onready var _interact_ray: RayCast3D = $InteractRay
-@onready var _mesh: MeshInstance3D = $MeshInstance3D
+@onready var _mesh: MeshInstance3D = get_node_or_null("MeshInstance3D")  # legacy capsule (gone w/ model)
 @onready var _carry_socket: Node3D = $CarrySocket
+@onready var _model: Node3D = get_node_or_null("characterMedium")
+@onready var _anim: AnimationPlayer = get_node_or_null("characterMedium/Root/AnimationPlayer")
 
-var _yaw: float = 0.0           # camera yaw — body rotation stays at identity
+var _yaw: float = 0.0           # camera + character yaw (free-look drives the body)
 var _pitch: float = 0.0
+# Resolved animation clip names (idle/run/jump) + last-applied state.
+var _anim_idle: String = ""
+var _anim_run: String = ""
+var _anim_jump: String = ""
+var _anim_state: int = -1       # -1 unset, 0 idle, 1 run, 2 jump
 var _current_interactable: Interactable = null
 var _last_emitted_prompt: String = ""  # to debounce per-frame prompt refreshes
 var _is_helmsman: bool = false  # true while *this* player is driving the ship
@@ -99,8 +112,20 @@ func _ready() -> void:
 	if is_multiplayer_authority():
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		_camera.current = true
+		# Over-the-shoulder framing + let the spring arm pull the camera in
+		# front of walls/terrain instead of clipping through them.
+		_camera.position = Vector3(shoulder_offset, camera_height, 0.0)
+		_spring.collision_mask = spring_collision_mask
+		_spring.margin = 0.3
+		_spring.add_excluded_object(get_rid())  # never collide with our own body
 	else:
 		_camera.current = false
+	# All peers: model facing offset (preserve baked scale/axis) + anim setup.
+	if _model != null and not is_zero_approx(model_yaw_offset_deg):
+		var t := _model.transform
+		_model.transform = Transform3D(
+				Basis(Vector3.UP, deg_to_rad(model_yaw_offset_deg)) * t.basis, t.origin)
+	_resolve_animations()
 	NetworkManager.helmsman_changed.connect(_on_helmsman_changed)
 	NetworkManager.gunner_changed.connect(_on_gunner_changed)
 	_is_helmsman = NetworkManager.current_helmsman != 0 \
@@ -117,6 +142,59 @@ func _ready() -> void:
 	var ship := get_tree().get_first_node_in_group("ship")
 	if ship and ship.has_signal("damage_taken") and not ship.damage_taken.is_connected(_on_ship_damage_taken):
 		ship.damage_taken.connect(_on_ship_damage_taken)
+
+
+## Match the imported clip names by keyword (robust to "Root|Idle",
+## "run/Root|Run", etc.), set looping where appropriate, and start idle.
+func _resolve_animations() -> void:
+	if _anim == null:
+		return
+	for n in _anim.get_animation_list():
+		var low := n.to_lower()
+		if _anim_idle == "" and low.contains("idle"):
+			_anim_idle = n
+		elif _anim_jump == "" and low.contains("jump"):
+			_anim_jump = n
+		elif _anim_run == "" and (low.contains("run") or low.contains("walk")):
+			_anim_run = n
+	for nm in [_anim_idle, _anim_run]:
+		if nm != "" and _anim.has_animation(nm):
+			_anim.get_animation(nm).loop_mode = Animation.LOOP_LINEAR
+	_play_anim_state(0)
+
+
+## Play the clip for a state (0 idle / 1 run / 2 jump) on this peer.
+func _play_anim_state(state: int) -> void:
+	if _anim == null:
+		return
+	var clip := _anim_idle
+	if state == 1 and _anim_run != "":
+		clip = _anim_run
+	elif state == 2 and _anim_jump != "":
+		clip = _anim_jump
+	if clip != "" and _anim.has_animation(clip) and _anim.current_animation != clip:
+		_anim.play(clip)
+
+
+## Authority decides the state from movement; broadcast only on change so the
+## reliable RPC stays quiet. call_local plays it here too.
+func _update_anim_state() -> void:
+	var state := 0
+	if _is_helmsman or _is_gunner or is_dead:
+		state = 0
+	elif not is_on_floor():
+		state = 2
+	elif Vector2(velocity.x, velocity.z).length() > 0.6:
+		state = 1
+	if state != _anim_state:
+		_anim_state = state
+		_set_anim_state.rpc(state)
+
+
+@rpc("any_peer", "call_local", "reliable")
+func _set_anim_state(state: int) -> void:
+	_anim_state = state
+	_play_anim_state(state)
 
 
 ## Update local helm-locked flag when the helmsman role changes hands.
@@ -217,14 +295,24 @@ func _snap_to_gunner_seat() -> void:
 func _process(delta: float) -> void:
 	if not is_multiplayer_authority():
 		return
+	var base := _rig_spring_euler()
 	if _shake_strength <= 0.0:
-		_spring.rotation = Vector3(_pitch, _yaw, 0.0)
+		_spring.rotation = base
 		return
 	# Decay roughly linearly so a "small" hit ends quickly and a "big" hit lingers.
 	_shake_strength = maxf(0.0, _shake_strength - delta * 1.8)
 	var jitter_x := randf_range(-_shake_strength, _shake_strength) * 0.06
 	var jitter_y := randf_range(-_shake_strength, _shake_strength) * 0.06
-	_spring.rotation = Vector3(_pitch + jitter_x, _yaw + jitter_y, 0.0)
+	_spring.rotation = base + Vector3(jitter_x, jitter_y, 0.0)
+
+
+## Spring-arm euler by mode: free-look keeps yaw on the BODY (so the character
+## turns with the camera and it replicates), so the arm only pitches; while
+## helming the body is locked, so the arm carries yaw too.
+func _rig_spring_euler() -> Vector3:
+	if _is_helmsman:
+		return Vector3(_pitch, _yaw, 0.0)
+	return Vector3(_pitch, 0.0, 0.0)
 
 
 ## Stack a fresh shake on top of any in-progress shake (so rapid hits feel worse).
@@ -261,7 +349,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		_yaw -= event.relative.x * MOUSE_SENSITIVITY
 		_pitch = clampf(_pitch - event.relative.y * MOUSE_SENSITIVITY, -1.22, 1.22)
-		_spring.rotation = Vector3(_pitch, _yaw, 0.0)
+		# Rig (spring + body + ray) is applied in _process / _physics_process.
 	elif event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		# Quick mouse-release for debugging in the editor.
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -279,6 +367,7 @@ func _physics_process(delta: float) -> void:
 		if not is_on_floor():
 			velocity.y -= GRAVITY * delta
 		move_and_slide()
+		_update_anim_state()
 		return
 	if _is_gunner:
 		# Locked at the gun seat. Re-snap each tick because the ship's terrain
@@ -287,6 +376,7 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector3.ZERO
 		_snap_to_gunner_seat()
 		_interact_ray.rotation = Vector3(_pitch, _yaw, 0.0)
+		_update_anim_state()
 		_poll_interact()
 		return
 	if _is_helmsman:
@@ -294,8 +384,13 @@ func _physics_process(delta: float) -> void:
 		# updates, and still poll E (used to release the helm).
 		velocity = Vector3.ZERO
 		_interact_ray.rotation = Vector3(_pitch, _yaw, 0.0)
+		_update_anim_state()
 		_poll_interact()
 		return
+
+	# Free-look: the character body carries the yaw, so the model turns with
+	# the camera and it replicates to other peers (rotation is synchronised).
+	rotation = Vector3(0.0, _yaw, 0.0)
 
 	# Movement input is taken in camera-relative space so "forward" matches
 	# the screen even though the ship beneath us is rotating in world space.
@@ -329,7 +424,9 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity.y -= GRAVITY * delta
 	move_and_slide()
-	_interact_ray.rotation = Vector3(_pitch, _yaw, 0.0)
+	# Body already carries yaw; the ray only needs pitch.
+	_interact_ray.rotation = Vector3(_pitch, 0.0, 0.0)
+	_update_anim_state()
 	_poll_interact()
 
 

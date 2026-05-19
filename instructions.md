@@ -198,6 +198,28 @@ hold → no fuel → the ship strands (T1.6 — not a game-over).
 
 ---
 
+## Character controller
+
+Third-person over-the-shoulder. In free-look the **body** carries the yaw
+(`rotation.y = _yaw`) so the character model turns with the camera and it
+replicates for free (`player.tscn` synchronises `position` + `rotation`);
+the `SpringArm3D` only pitches. While helming, the body is locked and the
+arm carries yaw instead (`_rig_spring_euler`). The spring arm has
+`collision_mask = spring_collision_mask` (world solids) and excludes the
+own body, so the camera pulls in front of walls/terrain instead of
+clipping. `shoulder_offset`/`camera_height` frame the camera; if the
+imported mesh faces backwards, set `model_yaw_offset_deg` (applied once,
+scale-preserving).
+
+Animations live on `characterMedium/Root/AnimationPlayer`. Clip names are
+resolved by keyword (`_resolve_animations` — robust to `Root|Idle`,
+`run/…`, `jump/…`); idle/run loop. The authority picks a state
+(idle/run/jump from floor + horizontal speed; locked roles & dead → idle)
+and broadcasts it only on change via `_set_anim_state` (call_local +
+reliable), so every peer animates correctly off the same signal.
+
+---
+
 ## Crew survival (Tier 1, T1.5)
 
 Per-player `hunger` / `thirst` / `energy` (0–100) on `player_controller.gd`,
