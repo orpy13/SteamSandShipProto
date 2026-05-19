@@ -22,11 +22,15 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = false
 
+	# A full-rect CenterContainer keeps the panel centred at any resolution.
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(center)
+
 	var panel := PanelContainer.new()
-	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.position = Vector2(-180, -160)
 	panel.custom_minimum_size = Vector2(360, 320)
-	add_child(panel)
+	center.add_child(panel)
 
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 6)
