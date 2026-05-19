@@ -239,4 +239,9 @@ independent but the chart is only interesting once T2.2 has POIs to find.
   (server-spawned under WorldMap so it stays put in the dunes; item scenes
   gain a pickup Area3D). Deferred from the items pass — it's a small
   networked subsystem, not an inline tweak.
+- **Debug / god mode for testing**: a toggle (key/console) granting
+  test conveniences — no survival drain / no death, infinite fuel &
+  cargo, instant repair, free-fly or teleport, force weather/time, spawn
+  a bandit. Host-gated; off by default. Saves a lot of manual setup when
+  testing the systems above.
 - **Automated smoke test / CI** guard.
