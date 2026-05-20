@@ -59,7 +59,37 @@ func _ready() -> void:
 	Regions.set_world_seed(noise_seed)
 	if chunk_registry == null and ResourceLoader.exists(DEFAULT_REGISTRY_PATH):
 		chunk_registry = load(DEFAULT_REGISTRY_PATH)
+	_build_sea_plane()
 	_update_chunks(Vector3.ZERO)
+
+
+## Code-built water plane (Tier 2, T2.1). Parented to WorldMap so the
+## world-scroll trick keeps it pinned to the geographic origin while the ship
+## sails over it. Sized to the finite world extent; sits at SEA_LEVEL. Coast
+## terrain (Regions.ID_COAST) is offset well below this Y so it reads as
+## submerged shore; everywhere else the terrain is above water and hides the
+## plane.
+func _build_sea_plane() -> void:
+	if has_node("SeaPlane"):
+		return
+	var extent: float = Regions.WORLD_HALF_EXTENT * 2.0 + Regions.BORDER_BAND * 2.0
+	var mesh := MeshInstance3D.new()
+	mesh.name = "SeaPlane"
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(extent, extent)
+	mesh.mesh = pm
+	mesh.position = Vector3(0.0, Regions.SEA_LEVEL, 0.0)
+	var mat := StandardMaterial3D.new()
+	# A muted blue-teal: not photoreal, but readable as "that's the sea" at
+	# distance. Slight transparency so the underlying coast dunes hint through.
+	mat.albedo_color = Color(0.18, 0.30, 0.42, 0.92)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.metallic = 0.1
+	mat.roughness = 0.35
+	mesh.material_override = mat
+	# Don't shadow the dunes inland — the plane stretches far past any chunk.
+	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mesh)
 
 
 ## Public hook for ship_controller.gd. Returns dune height at a virtual world

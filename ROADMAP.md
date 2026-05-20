@@ -186,24 +186,31 @@ are re-slotted to build on it.
   `Regions.gd`. Preview parity preserved.
 - Spec sync: "Regions" section in `instructions.md`.
 
-**T2.1 — World bounds + border biomes**
-- Define world extents in `world_offset` space.
-- Coast: terrain below a sea level + a water plane (Forward+) → hard edge.
-- Mountains: height ramps past the climbable grade (reuses
-  `grade_gravity`/`grade_speed_sensitivity`) → diegetic soft wall, no
-  invisible barriers.
-- Jungle: dense collidable props (reuses the `_move_virtual_offset`
-  hard-stop) — slow, hazardous, but unique resources.
-- Hero edge sites authored via the bespoke chunk editor.
+**T2.1 — World bounds + border biomes — SHIPPED**
+- `Regions.WORLD_HALF_EXTENT` (2000 m default) + `BORDER_BAND` (240 m)
+  define a finite world. `BoundedRegionSampler` wraps the interior noise
+  sampler and ramps into a border biome on each edge.
+- `coast` (height_offset −8, dips under SEA_LEVEL), `mountains`
+  (height_offset +25, unclimbable by `grade_speed_sensitivity`), and
+  `jungle` (heavy `HAZ_ROLLING_MULT`) added to `Regions._REGION_DATA`.
+- Code-built `SeaPlane` (Y = `SEA_LEVEL`) under `WorldMap` reads as ocean
+  where coast terrain dips below it.
+- Border placement: +x → coast, −x → mountains, +z → mountains, −z →
+  jungle. Corner ties favour the X axis.
+- Hero edge sites via the bespoke chunk editor are still on the table as
+  a follow-up; the dock works against the new sampler today.
 
-**T2.2 — POI / settlement registry (hybrid)**
-- Curated registry: named settlements at fixed world coords with identity
-  (services: market / fuel / water / provisions / repair / contracts).
-  Replaces arbitrary `HAND_PLACED_OASES`.
-- Deterministic minor POIs seeded per region between settlements (extends
-  the existing water-tower seeding, region-aware).
-- Resolved through the chunk registry/overlay tiers so streaming spawns
-  them; bespoke editor authors the hero settlements.
+**T2.2 — POI / settlement registry — SHIPPED (curated tier)**
+- New `POIRegistry` autoload owns the four named settlements (Rust Pump,
+  Tin Lantern, Dust Anvil, Salt Thread) with `oasis_subtype` + service
+  flags (`market`, `fuel`, `water`, `provisions`, `repair`, `contracts`).
+- `ChunkGen.build_object_records` reads `settlements_in_chunk(key, ...)`
+  instead of the old `HAND_PLACED_OASES` dict (kept as an empty const for
+  compat). Yaw stable per settlement id.
+- `DebugPanel` teleport dropdown reads from the registry.
+- **Deferred**: deterministic minor POIs seeded per region (salvage /
+  wrecks / ruins). Stub left in `POIRegistry` for the future generator —
+  pure function of `Regions.world_seed`.
 
 **T2.3 — Navigation overhaul (earn position)**
 - HUD: replace live `X/Z` with HDG + speed + a dead-reckoning estimate

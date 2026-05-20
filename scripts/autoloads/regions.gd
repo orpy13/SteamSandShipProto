@@ -28,6 +28,24 @@ extends Node
 const ID_DUNES := "dunes"
 const ID_SALT_FLATS := "salt_flats"
 const ID_BADLANDS := "badlands"
+# Border biomes (Tier 2, T2.1) — push in from the world edges. Each one
+# uses height_scale + height_offset to enforce a diegetic wall: coast dips
+# below sea level, mountains rear up past the climbable grade, jungle is
+# heavy props and rolling resistance you can push through at a cost.
+const ID_COAST := "coast"
+const ID_MOUNTAINS := "mountains"
+const ID_JUNGLE := "jungle"
+
+# Finite world bounds (Tier 2, T2.1). The interior is the rectangle
+# [-WORLD_HALF_EXTENT, +WORLD_HALF_EXTENT] in both axes; the BORDER_BAND-wide
+# ring around the inside edge is the soft transition into border biomes.
+const WORLD_HALF_EXTENT := 2000.0   # ~50 chunks each way at chunk_size=80
+const BORDER_BAND := 240.0          # transition width (3 chunks-ish)
+## Water plane Y. Sits below the lowest interior dune trough (dunes ±3.5,
+## badlands ±6.5 with no offset) so the sea is only ever visible inside the
+## coast border, where height_offset drops terrain past this Y. Bumping this
+## up would let the sea bleed into salt flats / dunes — don't.
+const SEA_LEVEL := -8.0
 
 # Per-region tuning. height_scale / noise_frequency / noise_octaves drive the
 # chunk heightfield; tint colours the terrain mesh via vertex colours; the
@@ -41,11 +59,14 @@ class RegionData extends RefCounted:
 	var noise_octaves: int
 	var noise_lacunarity: float
 	var height_scale: float
+	## Additive Y bias applied AFTER noise×scale. Lets borders sit well above
+	## (mountains) or below (coast) sea level without changing the wave shape.
+	var height_offset: float
 	var hazard_modifiers: Dictionary  # String → float
 
 	func _init(p_id: String, p_display: String, p_tint: Color,
 			p_freq: float, p_oct: int, p_lac: float, p_height: float,
-			p_haz: Dictionary) -> void:
+			p_offset: float, p_haz: Dictionary) -> void:
 		id = p_id
 		display_name = p_display
 		tint = p_tint
@@ -53,6 +74,7 @@ class RegionData extends RefCounted:
 		noise_octaves = p_oct
 		noise_lacunarity = p_lac
 		height_scale = p_height
+		height_offset = p_offset
 		hazard_modifiers = p_haz
 
 
@@ -62,7 +84,8 @@ const HAZ_THIRST_MULT := "thirst_mult"           # multiplies player thirst drai
 const HAZ_ROLLING_MULT := "rolling_resistance_mult"  # multiplies ship grade rolling resistance
 
 # Built-in region table. Tuned conservatively so v1 reads as "regions exist
-# and feel different" without nuking the baseline dunes feel.
+# and feel different" without nuking the baseline dunes feel. `offset` is the
+# additive Y bias for borders (mountains rear up; coast dips below sea level).
 const _REGION_DATA: Array = [
 	# Baseline dunes — matches the old single-noise look so most of the map
 	# stays visually familiar.
@@ -74,6 +97,7 @@ const _REGION_DATA: Array = [
 		"oct": 2,
 		"lac": 2.0,
 		"height": 3.5,
+		"offset": 0.0,
 		"haz": {},
 	},
 	# Salt flats — flatter, paler, hotter on thirst.
@@ -85,6 +109,7 @@ const _REGION_DATA: Array = [
 		"oct": 1,
 		"lac": 2.0,
 		"height": 0.8,
+		"offset": 0.0,
 		"haz": { HAZ_THIRST_MULT: 1.5 },
 	},
 	# Badlands — sharper, darker, rougher to roll across.
@@ -96,7 +121,53 @@ const _REGION_DATA: Array = [
 		"oct": 3,
 		"lac": 2.2,
 		"height": 6.5,
+		"offset": 0.0,
 		"haz": { HAZ_ROLLING_MULT: 1.8 },
+	},
+	# Coast — terrain dips well below SEA_LEVEL (−8) so a water plane reads
+	# as ocean. Offset is biased so the deepest trough is ~7 m under water
+	# and the shallowest crest still sits ~2 m below — no spurious sand
+	# pokes through unless the user widens BORDER_BAND. No hazards (the
+	# water itself is the wall).
+	{
+		"id": ID_COAST,
+		"display": "Coast",
+		"tint": Color(0.78, 0.70, 0.52, 1.0),       # damp sand
+		"freq": 0.005,
+		"oct": 1,
+		"lac": 2.0,
+		"height": 2.5,
+		"offset": -13.0,
+		"haz": {},
+	},
+	# Mountains — height_scale + a big positive offset push terrain past the
+	# climbable grade (ship_controller.grade_speed_sensitivity defaults to 6;
+	# with 25m + ~10m of noise the slopes are unclimbable except at the
+	# fringes — a diegetic soft wall).
+	{
+		"id": ID_MOUNTAINS,
+		"display": "Mountains",
+		"tint": Color(0.34, 0.32, 0.30, 1.0),
+		"freq": 0.014,
+		"oct": 3,
+		"lac": 2.4,
+		"height": 10.0,
+		"offset": 25.0,
+		"haz": { HAZ_ROLLING_MULT: 2.4 },
+	},
+	# Jungle — passable but punishing: heavy rolling resistance, slower thirst
+	# recovery (humidity doesn't help dehydration in this fiction). Visual is
+	# a deep green-brown tint; prop density goes here in a follow-up.
+	{
+		"id": ID_JUNGLE,
+		"display": "Jungle",
+		"tint": Color(0.22, 0.32, 0.18, 1.0),
+		"freq": 0.010,
+		"oct": 2,
+		"lac": 2.0,
+		"height": 4.0,
+		"offset": 1.5,
+		"haz": { HAZ_ROLLING_MULT: 2.0 },
 	},
 ]
 
@@ -156,6 +227,52 @@ class NoiseRegionSampler extends RegionSampler:
 		return {String(last["high"]): 1.0}
 
 
+# Finite-world border ring (Tier 2, T2.1). Wraps an inner sampler and replaces
+# its output with a border-biome blend inside `border_band` metres of the
+# world edge. Which border depends on which axis is closest to the edge:
+#   +x → coast, −x → mountains, +z → mountains, −z → jungle.
+# Beyond the world extent, full border weight (interior contribution → 0).
+class BoundedRegionSampler extends RegionSampler:
+	var _inner: RegionSampler
+	var _half: float
+	var _band: float
+
+	func _init(inner: RegionSampler, half_extent: float, band: float) -> void:
+		_inner = inner
+		_half = maxf(half_extent, band + 1.0)
+		_band = maxf(band, 1.0)
+
+	## How much "border" weight applies at (x, z). 0 inside, 1 at/past the edge,
+	## linear in between across `band`. Uses the bigger overrun of x vs z.
+	func _border_weight(x: float, z: float) -> float:
+		var dx := (absf(x) - (_half - _band)) / _band
+		var dz := (absf(z) - (_half - _band)) / _band
+		return clampf(maxf(dx, dz), 0.0, 1.0)
+
+	## Pick the border id based on which edge dominates. Ties favour the X axis
+	## (coast/mountains) so equator corners read as ocean/cliff, not jungle.
+	func _border_id_for(x: float, z: float) -> String:
+		var x_over := absf(x) - (_half - _band)
+		var z_over := absf(z) - (_half - _band)
+		if x_over >= z_over:
+			return ID_COAST if x > 0.0 else ID_MOUNTAINS
+		return ID_MOUNTAINS if z > 0.0 else ID_JUNGLE
+
+	func sample(x: float, z: float) -> Dictionary:
+		var inner_w := _inner.sample(x, z)
+		var bw := _border_weight(x, z)
+		if bw <= 0.0:
+			return inner_w
+		var bid := _border_id_for(x, z)
+		# Scale interior contributions down; add the border weight on top.
+		var out: Dictionary = {}
+		var inv := 1.0 - bw
+		for id in inner_w.keys():
+			out[id] = float(inner_w[id]) * inv
+		out[bid] = float(out.get(bid, 0.0)) + bw
+		return out
+
+
 # ── Autoload state ───────────────────────────────────────────────────────────
 var world_seed: int = 1337
 var sampler: RegionSampler
@@ -175,17 +292,19 @@ func _build_region_table() -> void:
 			String(row["id"]), String(row["display"]),
 			row["tint"] as Color,
 			float(row["freq"]), int(row["oct"]), float(row["lac"]),
-			float(row["height"]),
+			float(row["height"]), float(row["offset"]),
 			(row["haz"] as Dictionary).duplicate())
 		_regions[rd.id] = rd
 
 
-## Build the default 3-region noise sampler from the current `world_seed`.
+## Build the default sampler stack: interior noise bands wrapped by a bounded
+## border ring (Tier 2, T2.1). Swap the whole stack later via `set_sampler`.
 func _default_sampler() -> RegionSampler:
-	return NoiseRegionSampler.new(world_seed, [
+	var interior := NoiseRegionSampler.new(world_seed, [
 		{ "above": -0.25, "low": ID_BADLANDS,   "high": ID_DUNES },
 		{ "above":  0.30, "low": ID_DUNES,      "high": ID_SALT_FLATS },
 	])
+	return BoundedRegionSampler.new(interior, WORLD_HALF_EXTENT, BORDER_BAND)
 
 
 # ── Public API ───────────────────────────────────────────────────────────────

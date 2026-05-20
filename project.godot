@@ -24,6 +24,7 @@ GameState="*res://scripts/autoloads/game_state.gd"
 NetworkManager="*res://scripts/network_manager.gd"
 AudioManager="*res://scripts/autoloads/audio_manager.gd"
 Regions="*res://scripts/autoloads/regions.gd"
+POIRegistry="*res://scripts/autoloads/poi_registry.gd"
 
 [display]
 

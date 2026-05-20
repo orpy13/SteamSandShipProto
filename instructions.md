@@ -84,7 +84,7 @@ res://
 │       ├── gun_overlay.tscn                   # Crosshair / elevation / reload bar (gunner only)
 │       └── trade_panel.tscn                   # Buy/sell modal at a market
 └── scripts/
-    ├── main.gd  network_manager.gd (autoload)  game_state.gd  audio_manager.gd  regions.gd (autoload)
+    ├── main.gd  network_manager.gd (autoload)  game_state.gd  audio_manager.gd  regions.gd (autoload)  poi_registry.gd (autoload)
     ├── ship_controller.gd                     # Locomotion + damage model + economy state
     ├── steam_plant.gd                         # Coal → heat → pressure → power
     ├── player_controller.gd                   # Movement, look, interact, carry, helm/gun lock
@@ -443,14 +443,37 @@ hooks: `bandit_director` multiplies spawn chance by storm intensity
 
 ---
 
-## Regions (Tier 2, T2.0)
+## Regions (Tier 2, T2.0 + T2.1)
 
 The desert is divided into named **regions** (biomes) by a single autoload,
-`Regions` (`scripts/autoloads/regions.gd`). v1 ships three: **dunes** (the
-baseline that matches the old visual), **salt_flats** (flatter, paler,
-`thirst_mult` 1.5), **badlands** (rougher, darker, `rolling_resistance_mult`
-1.8). Each `RegionData` row sets `noise_frequency`/`octaves`/`lacunarity`
-+ `height_scale`, a `tint` Color, and a `hazard_modifiers` Dictionary.
+`Regions` (`scripts/autoloads/regions.gd`). v1 ships six: three **interior**
+regions — **dunes** (baseline), **salt_flats** (flat / pale / `thirst_mult`
+1.5), **badlands** (rough / dark / `rolling_resistance_mult` 1.8) — plus
+three **border biomes** that enforce the world bounds (T2.1): **coast**
+(terrain offset well below sea level so the water plane reads as ocean),
+**mountains** (height_offset 25m + noise — unclimbable by the
+`grade_speed_sensitivity` model), and **jungle** (heavy rolling resistance).
+Each `RegionData` row sets `noise_frequency` / `octaves` / `lacunarity` +
+`height_scale` + `height_offset` (additive Y bias for borders), a `tint`
+Color, and a `hazard_modifiers` Dictionary.
+
+### Finite world bounds (T2.1)
+
+The world is a rectangle of `±Regions.WORLD_HALF_EXTENT` (default 2000 m,
+~50 chunks each way). A `BorderRegionSampler` wraps the interior sampler
+and replaces its output with a border-biome blend inside `BORDER_BAND`
+metres of the edge — linear ramp from "interior" to "100% border". Which
+border is which depends on which axis is closest to the edge: **+x →
+coast**, **−x → mountains**, **+z → mountains**, **−z → jungle**. Corner
+ties favour the X axis so corners read as ocean or cliff rather than
+jungle. Past the edge, weight is fully on the border (you can drive
+through coast water onto submerged sand, but mountains and jungle make
+that miserable through rolling resistance + the height wall).
+
+A code-built **`SeaPlane`** under `WorldMap` (built by
+`ChunkManager._build_sea_plane`) sits at `Regions.SEA_LEVEL` (Y = 0) over
+the whole world extent + border band. Coast terrain submerges below it;
+inland terrain is above and hides the plane.
 
 The (x, z) → region mapping is behind a strategy so it can be swapped
 without touching consumers:
@@ -479,6 +502,35 @@ same calls):
 Hazards are **point queries at the ship's `world_offset`**, not per-chunk —
 so a single crew on one ship all share the same regional climate even
 while standing in different scene-local spots near the deck.
+
+---
+
+## POI registry (Tier 2, T2.2)
+
+Curated settlements + (future) minor POIs live on a single autoload,
+`POIRegistry` (`scripts/autoloads/poi_registry.gd`). v1 holds four named
+settlements at fixed `world_pos` coords, each with an `oasis_subtype`
+(mining / caravan — drives the market price column) and a list of
+**service flags** (`market`, `fuel`, `water`, `provisions`, `repair`,
+`contracts`). This replaces the ad-hoc `ChunkGen.HAND_PLACED_OASES` dict;
+the four existing oases were re-homed here under names (Rust Pump, Tin
+Lantern, Dust Anvil, Salt Thread) so balance / playtests don't move.
+
+Consumers:
+
+- `ChunkGen.build_object_records` calls
+  `POIRegistry.settlements_in_chunk(key, chunk_size)` to spawn oases at
+  the registry's `world_pos`. Yaw is hashed off the settlement id so
+  rebuilds are stable.
+- `DebugPanel._build_teleport_targets` reads the curated list to populate
+  the teleport dropdown — adding a settlement makes it appear there for
+  free.
+- Planned (T2.3 chart): pin marker text is `display_name`; the icon set
+  reads from the service flags; "where am I?" uses `Regions.region_at`.
+
+Minor POIs (salvage, wrecks, ruins seeded per region) are deferred — the
+registry leaves a stub but no entries. Determinism for the future
+generator: pure function of `Regions.world_seed` + per-region salt.
 
 ---
 

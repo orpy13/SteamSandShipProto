@@ -14,14 +14,10 @@ extends RefCounted
 const WATER_TOWER_SCENE: PackedScene = preload("res://scenes/interactables/water_tower.tscn")
 const OASIS_SCENE: PackedScene = preload("res://scenes/world/oasis.tscn")
 
-# Hand-placed oasis locations — mirrors chunk_manager._HAND_PLACED_OASES so the
-# editor preview and the runtime agree on which chunks contain an oasis.
-const HAND_PLACED_OASES: Dictionary = {
-	Vector2i(6, 4): "mining",
-	Vector2i(-5, -3): "caravan",
-	Vector2i(9, -7): "mining",
-	Vector2i(-10, 8): "caravan",
-}
+# Curated oasis / settlement placement moved to `POIRegistry` (Tier 2, T2.2).
+# Kept as a compatibility shim so anything reading this const still resolves;
+# new code should call POIRegistry.settlements_in_chunk(key, chunk_size).
+const HAND_PLACED_OASES: Dictionary = {}
 
 # Per-region FastNoiseLite cache. Keyed by "{region_id}:{world_seed}" so a
 # world-seed change invalidates entries automatically. Static so the runtime
@@ -48,9 +44,11 @@ static func _region_noise(rd) -> FastNoiseLite:
 	return noise
 
 
-## Blended height at a world point. height = Σ weight_i × noise_i(x,z) × scale_i.
-## Public — `ChunkManager.sample_height` forwards here, so ship terrain-follow
-## and the chunk meshes read from the same blend.
+## Blended height at a world point.
+##   height = Σ weight_i × (noise_i(x,z) × scale_i + offset_i)
+## The offset term lets border biomes anchor well above (mountains) or below
+## (coast) sea level without changing the wave shape. Public — see
+## `ChunkManager.sample_height`.
 static func sample_height(world_x: float, world_z: float) -> float:
 	var weights := Regions.region_weights(world_x, world_z)
 	var h := 0.0
@@ -59,7 +57,7 @@ static func sample_height(world_x: float, world_z: float) -> float:
 		if w <= 0.0:
 			continue
 		var rd = Regions.get_data(String(id))
-		h += w * _region_noise(rd).get_noise_2d(world_x, world_z) * rd.height_scale
+		h += w * (_region_noise(rd).get_noise_2d(world_x, world_z) * rd.height_scale + rd.height_offset)
 	return h
 
 
@@ -280,22 +278,32 @@ static func build_object_records(key: Vector2i, heights: PackedFloat32Array,
 	if should_spawn_water_tower(key, load_radius):
 		objects.append(_make_water_tower_record(rng, heights, n, step, half,
 				placeholder_spawn_margin))
-	if HAND_PLACED_OASES.has(key):
-		objects.append(_make_oasis_record(rng, heights, n, step, half,
-				HAND_PLACED_OASES[key]))
+	# Curated settlements from POIRegistry (T2.2). A chunk may contain more
+	# than one in principle (none currently do) — we spawn each in order.
+	var chunk_size := step * float(n - 1)
+	for settlement in POIRegistry.settlements_in_chunk(key, chunk_size):
+		objects.append(_make_settlement_record(settlement, key, chunk_size,
+				heights, n, step, half))
 	return objects
 
-static func _make_oasis_record(rng: RandomNumberGenerator,
-		heights: PackedFloat32Array, n: int, step: float, half: float,
-		oasis_type: String) -> Dictionary:
-	var lx := rng.randf_range(-6.0, 6.0)
-	var lz := rng.randf_range(-6.0, 6.0)
+static func _make_settlement_record(settlement: Dictionary, key: Vector2i,
+		chunk_size: float, heights: PackedFloat32Array, n: int, step: float,
+		half: float) -> Dictionary:
+	# Resolve the curated world_pos into chunk-local coords. The chunk body
+	# is positioned at (key * chunk_size + half), so local = world - that.
+	var world_pos: Vector3 = settlement["world_pos"]
+	var lx: float = world_pos.x - (key.x * chunk_size + half)
+	var lz: float = world_pos.z - (key.y * chunk_size + half)
 	var h := height_from_grid(heights, n, step, half, lx, lz)
+	# Stable yaw per settlement id so rebuilds match (no RNG draw — keeps the
+	# editor preview deterministic and free of order-sensitive coupling).
+	var yaw := wrapf(float(hash(String(settlement["id"]))) * 0.001, -PI, PI)
 	return {
 		"type": "oasis",
-		"subtype": oasis_type,
+		"subtype": String(settlement["oasis_subtype"]),
+		"poi_id": String(settlement["id"]),
 		"pos": Vector3(lx, h, lz),
-		"yaw": rng.randf_range(-PI, PI),
+		"yaw": yaw,
 	}
 
 static func should_spawn_water_tower(key: Vector2i, load_radius: int) -> bool:

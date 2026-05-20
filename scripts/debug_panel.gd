@@ -14,13 +14,10 @@ extends Control
 ## when debug_mode is on.
 ##
 
-const TELEPORT_TARGETS: Array[Dictionary] = [
-	{"label": "Mining (6, 4)",    "offset": Vector3(480.0, 0.0, 320.0)},
-	{"label": "Caravan (-5, -3)", "offset": Vector3(-400.0, 0.0, -240.0)},
-	{"label": "Mining (9, -7)",   "offset": Vector3(720.0, 0.0, -560.0)},
-	{"label": "Caravan (-10, 8)", "offset": Vector3(-800.0, 0.0, 640.0)},
-	{"label": "Origin",           "offset": Vector3.ZERO},
-]
+# Built lazily from `POIRegistry` (Tier 2, T2.2) so the teleport dropdown
+# always reflects the curated settlement list. Plus a fixed "Origin" entry
+# for quick world-centre returns.
+var _teleport_targets: Array = []
 
 var _root: PanelContainer
 var _master_btn: Button
@@ -111,9 +108,10 @@ func _build_ui() -> void:
 	var tp_lbl := Label.new()
 	tp_lbl.text = "Teleport:"
 	tp_row.add_child(tp_lbl)
+	_build_teleport_targets()
 	var tp_opt := OptionButton.new()
-	for i in range(TELEPORT_TARGETS.size()):
-		tp_opt.add_item(String(TELEPORT_TARGETS[i]["label"]), i)
+	for i in range(_teleport_targets.size()):
+		tp_opt.add_item(String(_teleport_targets[i]["label"]), i)
 	tp_row.add_child(tp_opt)
 	var tp_go := Button.new()
 	tp_go.text = "Go"
@@ -272,14 +270,26 @@ func _on_kill_bandits_pressed() -> void:
 func _on_teleport_pressed(idx: int) -> void:
 	if not multiplayer.is_server():
 		return
-	if idx < 0 or idx >= TELEPORT_TARGETS.size():
+	if idx < 0 or idx >= _teleport_targets.size():
 		return
 	var ship := get_tree().get_first_node_in_group("ship")
 	if ship == null or not ship.has_method("debug_set_offset"):
 		return
 	# Route through an RPC so the offset lands on every peer regardless of who
 	# currently holds ship authority (helmsman may be a client).
-	ship.debug_set_offset.rpc(TELEPORT_TARGETS[idx]["offset"] as Vector3)
+	ship.debug_set_offset.rpc(_teleport_targets[idx]["offset"] as Vector3)
+
+
+## Populate `_teleport_targets` from POIRegistry + a fixed origin entry.
+func _build_teleport_targets() -> void:
+	_teleport_targets.clear()
+	for s in POIRegistry.all_settlements():
+		_teleport_targets.append({
+			"label": "%s (%s)" % [String(s["display_name"]),
+					String(s["oasis_subtype"])],
+			"offset": s["world_pos"] as Vector3,
+		})
+	_teleport_targets.append({"label": "Origin", "offset": Vector3.ZERO})
 
 
 # ── Slider handlers (drive shadow variables on GameState) ────────────────────
