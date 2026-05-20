@@ -471,9 +471,39 @@ through coast water onto submerged sand, but mountains and jungle make
 that miserable through rolling resistance + the height wall).
 
 A code-built **`SeaPlane`** under `WorldMap` (built by
-`ChunkManager._build_sea_plane`) sits at `Regions.SEA_LEVEL` (Y = 0) over
-the whole world extent + border band. Coast terrain submerges below it;
-inland terrain is above and hides the plane.
+`ChunkManager._build_sea_plane`) sits at `Regions.SEA_LEVEL` (Y = −8 m;
+below the deepest interior dune trough) over the whole world extent +
+border band. Coast terrain (height_offset −13) sits 2.5+ m below the
+plane and reads as ocean; inland terrain is above and hides the plane.
+
+### Authoring a region map from a texture (T2.1 paint workflow)
+
+Assign a `Texture2D` to `ChunkManager.region_map` (and optionally
+override `region_map_extent`, default `Regions.WORLD_HALF_EXTENT`). At
+`_ready` the noise + bounded-border sampler is swapped for a
+`TextureRegionSampler`. Workflow:
+
+1. Paint a small image (256×256 covers ±2000 m at 16 m / pixel) using
+   the colours in `Regions.REGION_PALETTE` — yellow=dunes, near-white=
+   salt_flats, brown=badlands, blue=coast (water), grey=mountains,
+   green=jungle. Paint your borders directly (no separate ring code).
+2. Import with **Compress = Lossless** (or VRAM Uncompressed) and
+   **Mipmaps = Off** so `get_image()` returns crisp palette pixels.
+3. Drop the texture onto the WorldMap node's `region_map` field. World
+   coords (x, z) ∈ [−extent, +extent] map to UV [0, 1]; out-of-bounds
+   clamps to the texture edge, so painting your border biome up to the
+   edge of the image continues the wall to ±∞.
+
+Sampling is **bilinear**, then the resulting colour is classified
+against the palette by squared-RGB distance. A sample very close to one
+palette entry returns `{id: 1.0}`; in-between samples (the natural
+pixel-edge gradient between two neighbouring colours) return the two
+nearest entries inverse-distance-weighted. So borders are smooth
+without any alpha or weight channel in the image — just paint flat
+colours and let pixel interpolation do the blend.
+
+POIs are a separate data layer (`POIRegistry` — see below). Paint the
+biomes; edit settlements in the registry. Independent.
 
 The (x, z) → region mapping is behind a strategy so it can be swapped
 without touching consumers:

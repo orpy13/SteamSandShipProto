@@ -32,6 +32,17 @@ extends Node3D
 ## noise frequencies / octaves / amplitudes are defined in `regions.gd`; this
 ## seed is the only piece of world state ChunkManager still owns.
 @export var noise_seed: int = 1337
+## Optional hand-painted region map (Tier 2, T2.1 authoring). Assign a
+## Texture2D whose pixels match `Regions.REGION_PALETTE`; we swap the noise
+## sampler for a TextureRegionSampler at `_ready`, so the texture defines
+## every biome AND every border (painting mountains/coast where you want
+## walls). Import the texture with Compress=Lossless and Mipmaps OFF.
+@export var region_map: Texture2D
+## World coverage of the region map, in metres from origin to edge. The
+## texture's UV (0..1) maps to (−extent .. +extent). Defaults to
+## `Regions.WORLD_HALF_EXTENT` so a freshly assigned map covers the same
+## world the noise sampler did.
+@export var region_map_extent: float = 0.0
 # Inset used when picking random positions for chunk objects so they don't
 # straddle chunk borders.
 @export var placeholder_spawn_margin: float = 8.0
@@ -57,6 +68,14 @@ var _ship: Node3D = null
 func _ready() -> void:
 	add_to_group("terrain")
 	Regions.set_world_seed(noise_seed)
+	# If a hand-painted region map is assigned, swap the sampler before the
+	# first chunk is built. The TextureRegionSampler bypasses the noise+border
+	# stack — your painted map IS the world layout (paint borders on the
+	# texture).
+	if region_map != null:
+		var extent: float = region_map_extent if region_map_extent > 0.0 \
+				else Regions.WORLD_HALF_EXTENT
+		Regions.set_sampler(Regions.make_texture_sampler(region_map, extent))
 	if chunk_registry == null and ResourceLoader.exists(DEFAULT_REGISTRY_PATH):
 		chunk_registry = load(DEFAULT_REGISTRY_PATH)
 	_build_sea_plane()

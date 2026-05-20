@@ -227,6 +227,123 @@ class NoiseRegionSampler extends RegionSampler:
 		return {String(last["high"]): 1.0}
 
 
+# Texture-driven region map (Tier 2, T2.1 authoring). Hand-paint a small image
+# in any editor with the colours listed in REGION_PALETTE — each pixel says
+# "this part of the world is THAT region". The sampler reads the texture with
+# bilinear filtering at world (x, z), then classifies the sampled colour
+# against the palette and returns a 1-or-2-region weight dict. Borders fall
+# out for free where you painted neighbouring regions (the bilinear lerp at
+# pixel edges produces in-between colours → blended weights).
+#
+# Coordinate mapping: world (x, z) ∈ [-extent, +extent] → UV ∈ [0, 1].
+# Out-of-bounds samples clamp to the texture edge (so painting your border
+# biome up to the edge of the image makes the wall continue to ±∞).
+#
+# Texture import notes for the user:
+#   • Set "Compress > Mode = Lossless" (or VRAM Uncompressed) in the import
+#     dock so `Texture2D.get_image()` returns pixel data we can read.
+#   • Disable mipmaps — they blur palette colours together and confuse the
+#     classifier.
+#   • Any size works; 256×256 covering ±2000 m = ~16 m / pixel, which is
+#     finer than the 80 m chunk grid, so chunks never straddle a palette
+#     boundary unintentionally.
+class TextureRegionSampler extends RegionSampler:
+	var _image: Image
+	var _extent: float
+	var _w: int = 0
+	var _h: int = 0
+
+	func _init(texture: Texture2D, world_extent: float) -> void:
+		_extent = maxf(world_extent, 1.0)
+		if texture != null:
+			_image = texture.get_image()
+		if _image != null:
+			_w = _image.get_width()
+			_h = _image.get_height()
+		if _image == null or _w == 0 or _h == 0:
+			push_warning("TextureRegionSampler: no readable image — falling back to dunes everywhere. Check texture import settings (Lossless, no mipmaps).")
+
+	func sample(x: float, z: float) -> Dictionary:
+		if _image == null or _w == 0 or _h == 0:
+			return {ID_DUNES: 1.0}
+		# UV with edge-clamp behaviour — painting up to the edge extends past it.
+		var u := clampf((x + _extent) / (2.0 * _extent), 0.0, 1.0)
+		var v := clampf((z + _extent) / (2.0 * _extent), 0.0, 1.0)
+		var c := _bilinear(u, v)
+		# Cross-script call: inner classes can't see the enclosing script's
+		# top-level statics by bare name, but the autoload global `Regions`
+		# does resolve here.
+		return Regions.classify_palette(c)
+
+	## Manual bilinear sample so we don't depend on GPU filtering settings.
+	## Returns the blended colour at the requested UV.
+	func _bilinear(u: float, v: float) -> Color:
+		var fx := u * float(_w - 1)
+		var fy := v * float(_h - 1)
+		var x0 := int(floor(fx))
+		var y0 := int(floor(fy))
+		var x1 := mini(x0 + 1, _w - 1)
+		var y1 := mini(y0 + 1, _h - 1)
+		var tx := fx - float(x0)
+		var ty := fy - float(y0)
+		var c00 := _image.get_pixel(x0, y0)
+		var c10 := _image.get_pixel(x1, y0)
+		var c01 := _image.get_pixel(x0, y1)
+		var c11 := _image.get_pixel(x1, y1)
+		return c00.lerp(c10, tx).lerp(c01.lerp(c11, tx), ty)
+
+
+# Palette: paint these RGB colours in your region-map texture to mark biomes.
+# Order in the array sets the lookup precedence (closest match wins ties).
+# Tip: pick high-contrast hues so a slightly-misclicked colour still
+# classifies correctly. Keep these stable — your saved map images depend on
+# them.
+const REGION_PALETTE: Array = [
+	{ "id": ID_DUNES,      "color": Color(0.95, 0.80, 0.40) },   # sandy yellow
+	{ "id": ID_SALT_FLATS, "color": Color(0.95, 0.95, 0.90) },   # near-white
+	{ "id": ID_BADLANDS,   "color": Color(0.50, 0.30, 0.20) },   # dark brown
+	{ "id": ID_COAST,      "color": Color(0.20, 0.50, 0.90) },   # water blue
+	{ "id": ID_MOUNTAINS,  "color": Color(0.40, 0.40, 0.40) },   # grey
+	{ "id": ID_JUNGLE,     "color": Color(0.20, 0.60, 0.25) },   # green
+]
+
+## Convert a sampled colour into a region weight dict by distance to the two
+## nearest palette entries. If the sample is essentially on one palette
+## colour we return a pure {id: 1.0}; otherwise the two nearest contribute
+## inversely proportional to their distances. Public so the chart system
+## (planned, T2.3) can reuse it for mini-map rendering. Method (not static)
+## so the inner `TextureRegionSampler` can call it via the `Regions` autoload
+## global; cost is one indirection, negligible vs. the bilinear sample above.
+func classify_palette(c: Color) -> Dictionary:
+	var pure_threshold := 0.03            # below this squared distance = "on" the palette colour
+	var ratio_threshold := 9.0            # nearest must be ≥9× closer than the runner-up to be "pure"
+	var best_id := ID_DUNES
+	var best_d := INF
+	var second_id := ID_DUNES
+	var second_d := INF
+	for entry in REGION_PALETTE:
+		var pc: Color = entry["color"]
+		var dr := c.r - pc.r
+		var dg := c.g - pc.g
+		var db := c.b - pc.b
+		var d := dr * dr + dg * dg + db * db   # squared RGB distance
+		if d < best_d:
+			second_d = best_d
+			second_id = best_id
+			best_d = d
+			best_id = String(entry["id"])
+		elif d < second_d:
+			second_d = d
+			second_id = String(entry["id"])
+	if best_d <= pure_threshold or second_d >= best_d * ratio_threshold:
+		return {best_id: 1.0}
+	# Inverse-distance weights, normalised. Closer = heavier.
+	var w1 := 1.0 / maxf(best_d, 0.0001)
+	var w2 := 1.0 / maxf(second_d, 0.0001)
+	var sum := w1 + w2
+	return {best_id: w1 / sum, second_id: w2 / sum}
+
+
 # Finite-world border ring (Tier 2, T2.1). Wraps an inner sampler and replaces
 # its output with a border-biome blend inside `border_band` metres of the
 # world edge. Which border depends on which axis is closest to the edge:
@@ -318,10 +435,21 @@ func set_world_seed(seed_value: int) -> void:
 	sampler = _default_sampler()
 
 
-## Swap the strategy. Future T2.1 work hands in a TextureRegionSampler.
+## Swap the strategy. Pass `null` to drop back to the default noise + border
+## stack. Consumers (chunks, hazards, chart) reread on next query.
 func set_sampler(s: RegionSampler) -> void:
-	if s != null:
-		sampler = s
+	if s == null:
+		sampler = _default_sampler()
+		return
+	sampler = s
+
+
+## Build a texture-backed sampler (Tier 2, T2.1 authoring path). Used by
+## `ChunkManager._ready` when its `region_map` export is set. Factory method
+## (rather than direct `TextureRegionSampler.new` from outside) so callers
+## don't need to cross the autoload's inner-class boundary.
+func make_texture_sampler(tex: Texture2D, extent: float) -> RegionSampler:
+	return TextureRegionSampler.new(tex, extent)
 
 
 ## Weight dictionary at a world point. Sums to ~1.0; zero-weight regions may
