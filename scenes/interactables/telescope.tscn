@@ -1,0 +1,82 @@
+[gd_scene load_steps=10 format=3]
+
+[ext_resource type="Script" path="res://scripts/interactables/telescope.gd" id="1"]
+
+[sub_resource type="SphereShape3D" id="InteractShape"]
+radius = 1.6
+
+[sub_resource type="StandardMaterial3D" id="BaseMat"]
+albedo_color = Color(0.30, 0.27, 0.22, 1)
+roughness = 0.85
+
+[sub_resource type="CylinderMesh" id="BaseMesh"]
+top_radius = 0.35
+bottom_radius = 0.5
+height = 0.4
+
+[sub_resource type="StandardMaterial3D" id="PostMat"]
+albedo_color = Color(0.42, 0.36, 0.30, 1)
+metallic = 0.2
+roughness = 0.7
+
+[sub_resource type="CylinderMesh" id="PostMesh"]
+top_radius = 0.08
+bottom_radius = 0.08
+height = 1.0
+
+[sub_resource type="StandardMaterial3D" id="TubeMat"]
+albedo_color = Color(0.18, 0.20, 0.22, 1)
+metallic = 0.7
+roughness = 0.35
+
+[sub_resource type="BoxMesh" id="TubeMesh"]
+size = Vector3(0.18, 0.18, 1.4)
+
+[sub_resource type="SceneReplicationConfig" id="ReplCfg"]
+properties/0/path = NodePath(".:traverse_yaw")
+properties/0/spawn = true
+properties/0/replication_mode = 1
+properties/1/path = NodePath(".:elevate_pitch")
+properties/1/spawn = true
+properties/1/replication_mode = 1
+
+[node name="Telescope" type="Area3D"]
+collision_layer = 2
+collision_mask = 0
+script = ExtResource("1")
+prompt_text = "Press E to use telescope"
+
+[node name="InteractCollision" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
+shape = SubResource("InteractShape")
+
+[node name="BaseMesh" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, 0)
+material_override = SubResource("BaseMat")
+mesh = SubResource("BaseMesh")
+
+[node name="TraverseMount" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
+
+[node name="PostMesh" type="MeshInstance3D" parent="TraverseMount"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+material_override = SubResource("PostMat")
+mesh = SubResource("PostMesh")
+
+[node name="ElevateBarrel" type="Node3D" parent="TraverseMount"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 0)
+
+[node name="TubeMesh" type="MeshInstance3D" parent="TraverseMount/ElevateBarrel"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.6)
+material_override = SubResource("TubeMat")
+mesh = SubResource("TubeMesh")
+
+[node name="TelescopeCamera" type="Camera3D" parent="TraverseMount/ElevateBarrel"]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, -0.05)
+fov = 15.0
+
+[node name="OperatorSeat" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, -0.7)
+
+[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]
+replication_config = SubResource("ReplCfg")

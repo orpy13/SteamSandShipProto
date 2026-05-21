@@ -17,6 +17,7 @@ signal connection_failed(reason: String)
 signal player_list_changed(players: Dictionary)
 signal helmsman_changed(peer_id: int)
 signal gunner_changed(peer_id: int)
+signal observer_changed(peer_id: int)
 
 const DEFAULT_PORT: int = 7777
 const MAX_PLAYERS: int = 4
@@ -26,6 +27,7 @@ var players: Dictionary = {}
 # 0 = no one in the role; otherwise the peer_id currently filling it.
 var current_helmsman: int = 0
 var current_gunner: int = 0
+var current_observer: int = 0   # Telescope operator (T2.3 Slice B)
 # The local crew name we'll register with once handshake completes.
 var _pending_local_name: String = "Crew"
 
@@ -49,6 +51,7 @@ func host_game(player_name: String, port: int = DEFAULT_PORT) -> void:
 	players[1] = {"name": player_name}
 	current_helmsman = 0
 	current_gunner = 0
+	current_observer = 0
 	# Stamp the shared world clock + weather seed at session start. Every peer
 	# derives day/night and storms deterministically from these (no per-frame
 	# sync); joining clients receive them in _on_peer_connected.
@@ -58,6 +61,7 @@ func host_game(player_name: String, port: int = DEFAULT_PORT) -> void:
 	player_list_changed.emit(players)
 	helmsman_changed.emit(0)
 	gunner_changed.emit(0)
+	observer_changed.emit(0)
 	# Spawn host's own player on every peer (just us, initially).
 	spawn_player_for_peer.rpc(1)
 
@@ -103,6 +107,7 @@ func _on_peer_connected(peer_id: int) -> void:
 		notify_chart_state.rpc_id(peer_id, ChartState.host_snapshot())
 		notify_helmsman_changed.rpc_id(peer_id, current_helmsman)
 		notify_gunner_changed.rpc_id(peer_id, current_gunner)
+		notify_observer_changed.rpc_id(peer_id, current_observer)
 		for existing_id in players.keys():
 			spawn_player_for_peer.rpc_id(peer_id, existing_id)
 
@@ -141,6 +146,9 @@ func _on_peer_disconnected(peer_id: int) -> void:
 		if current_gunner == peer_id:
 			current_gunner = 0
 			notify_gunner_changed.rpc(0)
+		if current_observer == peer_id:
+			current_observer = 0
+			notify_observer_changed.rpc(0)
 
 
 ## Server-only entry point for a freshly-connected client to announce themselves.
@@ -248,6 +256,13 @@ func notify_helmsman_changed(peer_id: int) -> void:
 func notify_gunner_changed(peer_id: int) -> void:
 	current_gunner = peer_id
 	gunner_changed.emit(peer_id)
+
+
+## Broadcast: a new peer is at the telescope (or 0 = nobody).
+@rpc("authority", "call_local", "reliable")
+func notify_observer_changed(peer_id: int) -> void:
+	current_observer = peer_id
+	observer_changed.emit(peer_id)
 
 
 ## Remove a disconnected peer's player node on every machine. Disembarked

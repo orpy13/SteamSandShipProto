@@ -28,17 +28,35 @@ const PANEL_PX := 720.0           # on-screen chart side length (square)
 const POI_PIN_COLOR := Color(0.95, 0.85, 0.30)
 const MARKER_PIN_COLOR := Color(1.0, 0.45, 0.40)
 const SHIP_COLOR := Color(0.95, 0.30, 0.30)
+const DR_COLOR := Color(0.35, 0.75, 1.0)
+const LAST_FIX_COLOR := Color(0.55, 0.85, 0.55)
+# Distinct colours per spotter so chart readers can tell whose bearings cross.
+const SPOTTER_COLORS: Array[Color] = [
+	Color(0.95, 0.30, 0.30, 0.85),
+	Color(0.30, 0.60, 0.95, 0.85),
+	Color(0.30, 0.85, 0.45, 0.85),
+	Color(0.95, 0.85, 0.30, 0.85),
+	Color(0.75, 0.40, 0.95, 0.85),
+	Color(0.95, 0.55, 0.20, 0.85),
+]
 const POI_PIN_RADIUS := 6.0
 const MARKER_PIN_RADIUS := 5.0
 const SHIP_ARROW_SIZE := 12.0
+# Bearing lines extend this far through the POI in BOTH directions (world
+# metres). World half-extent is 2 km so 4 km covers the full map.
+const BEARING_LINE_LENGTH := 4500.0
 
 var _map_rect: TextureRect
 var _pin_layer: Control          # POI / marker pins rebuilt on signal change
-var _ship_layer: Control         # ship arrow re-positioned every _process tick
+var _bearing_layer: Control      # triangulation lines (one Line2D per entry)
+var _ship_layer: Control         # ship arrow / DR estimate / uncertainty (per-frame)
 var _dr_btn: CheckBox
 var _marker_label: LineEdit
 var _status: Label
 var _placing_marker_btn: Button
+var _bearing_poi: OptionButton
+var _bearing_deg: SpinBox
+var _take_fix_btn: Button
 var _world_extent: float
 var _placing_marker: bool = false
 
@@ -53,7 +71,9 @@ func _ready() -> void:
 	_refresh_dr_button()
 	visible = false
 	ChartState.markers_changed.connect(_refresh_pins)
-	ChartState.discovered_changed.connect(_refresh_pins)
+	ChartState.discovered_changed.connect(_on_discovered_changed)
+	ChartState.bearing_lines_changed.connect(_refresh_bearings)
+	ChartState.last_fix_changed.connect(_refresh_bearings)  # take-fix button enable state
 	ChartState.dr_mode_changed.connect(_refresh_dr_button)
 	# DR-mode label updates depend on host status; clients can't flip it.
 	NetworkManager.player_list_changed.connect(func(_p): _refresh_dr_button())
@@ -97,6 +117,12 @@ func _build_ui() -> void:
 	_map_rect.gui_input.connect(_on_map_input)
 	map_holder.add_child(_map_rect)
 
+	# Layer order matters: bearing lines under pins; ship/DR overlay on top.
+	_bearing_layer = Control.new()
+	_bearing_layer.size = Vector2(PANEL_PX, PANEL_PX)
+	_bearing_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	map_holder.add_child(_bearing_layer)
+
 	_pin_layer = Control.new()
 	_pin_layer.size = Vector2(PANEL_PX, PANEL_PX)
 	_pin_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -124,6 +150,39 @@ func _build_ui() -> void:
 	clear_btn.pressed.connect(_on_clear_markers)
 	controls.add_child(clear_btn)
 
+	# Bearing entry row — the chart player types in what the telescope
+	# spotter calls out over voice.
+	var bearing_row := HBoxContainer.new()
+	v.add_child(bearing_row)
+	var blbl := Label.new()
+	blbl.text = "Bearing:"
+	bearing_row.add_child(blbl)
+	_bearing_poi = OptionButton.new()
+	_bearing_poi.custom_minimum_size = Vector2(160, 0)
+	bearing_row.add_child(_bearing_poi)
+	_bearing_deg = SpinBox.new()
+	_bearing_deg.min_value = 0.0
+	_bearing_deg.max_value = 359.9
+	_bearing_deg.step = 0.1
+	_bearing_deg.custom_minimum_size = Vector2(110, 0)
+	bearing_row.add_child(_bearing_deg)
+	var dlbl := Label.new()
+	dlbl.text = "°"
+	bearing_row.add_child(dlbl)
+	var add_b := Button.new()
+	add_b.text = "Add"
+	add_b.pressed.connect(_on_add_bearing)
+	bearing_row.add_child(add_b)
+	_take_fix_btn = Button.new()
+	_take_fix_btn.text = "Take fix (2+)"
+	_take_fix_btn.pressed.connect(_on_take_fix)
+	bearing_row.add_child(_take_fix_btn)
+	var clear_b := Button.new()
+	clear_b.text = "Clear lines"
+	clear_b.pressed.connect(_on_clear_bearings)
+	bearing_row.add_child(clear_b)
+	_refresh_bearing_poi_options()
+
 	_dr_btn = CheckBox.new()
 	_dr_btn.text = "DR enabled (host-only)"
 	_dr_btn.toggled.connect(_on_dr_toggled)
@@ -147,7 +206,9 @@ func open() -> void:
 	visible = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_refresh_pins()
+	_refresh_bearings()
 	_refresh_dr_button()
+	_refresh_bearing_poi_options()
 
 
 func close() -> void:
@@ -224,9 +285,14 @@ func _add_pin(pos: Vector2, label: String, color: Color, radius: float) -> void:
 
 # ── Ship arrow (continuous re-position) ──────────────────────────────────────
 
-## Slice A always shows the actual ship position. Slice B will branch on
-## ChartState.dr_enabled (and switch to the DR estimate + uncertainty circle
-## when DR is on; show only the last fix when DR is off).
+## Per-frame ship / DR / last-fix overlay. Slice B branches on
+## ChartState.dr_enabled and the presence of a fix:
+##   • DR on,  fix present  → draw the *drifted* estimate arrow + uncertainty
+##                            circle. Real position is hidden.
+##   • DR on,  no fix yet   → real ship arrow (no error to drift from).
+##   • DR off, fix present  → static last-fix marker only, no live arrow.
+##   • DR off, no fix yet   → no arrow at all (the chart is truly blind —
+##                            triangulate to populate the first fix).
 func _process(_delta: float) -> void:
 	if not visible:
 		return
@@ -235,11 +301,27 @@ func _process(_delta: float) -> void:
 	var ship := get_tree().get_first_node_in_group("ship")
 	if ship == null or not "world_offset" in ship:
 		return
-	var pos := _world_to_chart(ship.world_offset)
-	_add_ship_arrow(pos, float(ship.virtual_yaw))
+	var ship_pos: Vector3 = ship.world_offset
+	var ship_yaw := float(ship.virtual_yaw)
+	var has_fix := not ChartState.last_fix.is_empty()
+
+	if ChartState.dr_enabled:
+		if has_fix:
+			var now := GameState.world_time()
+			var est := ChartState.dr_estimate(now, ship_pos)
+			var rad_m := ChartState.dr_uncertainty_radius(now)
+			_add_uncertainty_circle(_world_to_chart(est), rad_m)
+			_add_ship_arrow(_world_to_chart(est), ship_yaw, DR_COLOR)
+		else:
+			# No fix → estimate IS the truth (no drift accumulated yet).
+			_add_ship_arrow(_world_to_chart(ship_pos), ship_yaw, SHIP_COLOR)
+	# Static last-fix marker (always drawn when a fix exists; doubles as the
+	# only position info in hard mode).
+	if has_fix:
+		_add_last_fix_marker(_world_to_chart(ChartState.last_fix["world_pos"]))
 
 
-func _add_ship_arrow(pos: Vector2, yaw: float) -> void:
+func _add_ship_arrow(pos: Vector2, yaw: float, color: Color = SHIP_COLOR) -> void:
 	var s := SHIP_ARROW_SIZE
 	var poly := Polygon2D.new()
 	# Triangle tip at -Y (chart north). Body splays back to either side.
@@ -248,7 +330,7 @@ func _add_ship_arrow(pos: Vector2, yaw: float) -> void:
 		Vector2(s * 0.6, s * 0.6),
 		Vector2(-s * 0.6, s * 0.6),
 	])
-	poly.color = SHIP_COLOR
+	poly.color = color
 	poly.position = pos
 	# virtual_yaw rotates the world by -yaw under the ship; on the chart we
 	# want the arrow to point along the ship's heading. World +Z = north;
@@ -257,6 +339,109 @@ func _add_ship_arrow(pos: Vector2, yaw: float) -> void:
 	# rotation positive = clockwise visually, which matches.
 	poly.rotation = yaw
 	_ship_layer.add_child(poly)
+
+
+## A small "X" at the last fix, in fix-green. Persistent reference point;
+## doubles as the only position cue in hard mode.
+func _add_last_fix_marker(pos: Vector2) -> void:
+	var s := 7.0
+	var l1 := Line2D.new()
+	l1.points = PackedVector2Array([pos + Vector2(-s, -s), pos + Vector2(s, s)])
+	l1.width = 2.0
+	l1.default_color = LAST_FIX_COLOR
+	_ship_layer.add_child(l1)
+	var l2 := Line2D.new()
+	l2.points = PackedVector2Array([pos + Vector2(-s, s), pos + Vector2(s, -s)])
+	l2.width = 2.0
+	l2.default_color = LAST_FIX_COLOR
+	_ship_layer.add_child(l2)
+
+
+## Dashed-ish circle drawn from line segments — Godot has no circle primitive
+## on Control nodes. Radius is converted from world metres to chart pixels.
+func _add_uncertainty_circle(centre: Vector2, world_radius_m: float) -> void:
+	if world_radius_m <= 0.5:
+		return
+	var span := 2.0 * _world_extent
+	var px_radius: float = world_radius_m / span * PANEL_PX
+	const SEGMENTS := 36
+	var pts := PackedVector2Array()
+	pts.resize(SEGMENTS + 1)
+	for i in range(SEGMENTS + 1):
+		var a := float(i) / float(SEGMENTS) * TAU
+		pts[i] = centre + Vector2(cos(a), sin(a)) * px_radius
+	var line := Line2D.new()
+	line.points = pts
+	line.width = 1.5
+	line.default_color = Color(DR_COLOR.r, DR_COLOR.g, DR_COLOR.b, 0.55)
+	_ship_layer.add_child(line)
+
+
+# ── Bearing lines ────────────────────────────────────────────────────────────
+
+func _refresh_bearings() -> void:
+	for c in _bearing_layer.get_children():
+		c.queue_free()
+	for i in range(ChartState.bearing_lines.size()):
+		_add_bearing_line(ChartState.bearing_lines[i])
+	_refresh_take_fix_button()
+
+
+func _add_bearing_line(entry: Dictionary) -> void:
+	var poi := POIRegistry.get_settlement(String(entry["poi_id"]))
+	if poi.is_empty():
+		return
+	var origin: Vector3 = poi["world_pos"]
+	# Line passes through the POI along the back-azimuth (bearing+180°) and
+	# the forward azimuth — we draw both directions so the chart player can
+	# see the intersection point even when it falls beyond the spotter.
+	var t := deg_to_rad(float(entry["bearing_deg"]))
+	var dir := Vector3(-sin(t), 0.0, -cos(t))
+	var a := _world_to_chart(origin - dir * BEARING_LINE_LENGTH)
+	var b := _world_to_chart(origin + dir * BEARING_LINE_LENGTH)
+	var line := Line2D.new()
+	line.points = PackedVector2Array([a, b])
+	line.width = 2.0
+	line.default_color = _spotter_color(int(entry.get("placed_by", 0)))
+	_bearing_layer.add_child(line)
+
+
+func _spotter_color(peer_id: int) -> Color:
+	if peer_id <= 0:
+		return SPOTTER_COLORS[0]
+	return SPOTTER_COLORS[peer_id % SPOTTER_COLORS.size()]
+
+
+func _refresh_take_fix_button() -> void:
+	if _take_fix_btn == null:
+		return
+	_take_fix_btn.disabled = ChartState.bearing_lines.size() < 2
+
+
+# ── POI dropdown options ─────────────────────────────────────────────────────
+# Rebuilt whenever discovery state changes — undiscovered POIs shouldn't show
+# up in the bearing-entry list (you can't enter a bearing for a POI you've
+# never heard of).
+func _refresh_bearing_poi_options() -> void:
+	if _bearing_poi == null:
+		return
+	var prev_id := ""
+	if _bearing_poi.item_count > 0 and _bearing_poi.selected >= 0:
+		prev_id = String(_bearing_poi.get_item_metadata(_bearing_poi.selected))
+	_bearing_poi.clear()
+	for s in POIRegistry.all_settlements():
+		var id := String(s["id"])
+		if not ChartState.is_discovered(id):
+			continue
+		_bearing_poi.add_item(String(s["display_name"]))
+		_bearing_poi.set_item_metadata(_bearing_poi.item_count - 1, id)
+		if id == prev_id:
+			_bearing_poi.select(_bearing_poi.item_count - 1)
+
+
+func _on_discovered_changed() -> void:
+	_refresh_pins()
+	_refresh_bearing_poi_options()
 
 
 # ── Inputs ───────────────────────────────────────────────────────────────────
@@ -290,6 +475,31 @@ func _on_map_input(event: InputEvent) -> void:
 
 func _on_clear_markers() -> void:
 	ChartState.request_clear_markers.rpc_id(1)
+
+
+func _on_add_bearing() -> void:
+	if _bearing_poi == null or _bearing_poi.item_count == 0:
+		_status.text = "No discovered POIs to triangulate against."
+		return
+	var idx := _bearing_poi.selected
+	if idx < 0:
+		idx = 0
+	var poi_id := String(_bearing_poi.get_item_metadata(idx))
+	var deg: float = float(_bearing_deg.value)
+	ChartState.request_add_bearing.rpc_id(1, poi_id, deg)
+	_status.text = "Added bearing %.1f° from %s." % [deg, _bearing_poi.get_item_text(idx)]
+
+
+func _on_clear_bearings() -> void:
+	ChartState.request_clear_bearing_lines.rpc_id(1)
+
+
+func _on_take_fix() -> void:
+	if ChartState.bearing_lines.size() < 2:
+		_status.text = "Need at least two bearings to triangulate."
+		return
+	ChartState.request_take_fix.rpc_id(1)
+	_status.text = "Fix requested — DR error reset at the intersection."
 
 
 func _on_dr_toggled(value: bool) -> void:

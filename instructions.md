@@ -78,7 +78,7 @@ res://
 │   ├── interactables/
 │   │   ├── helm.tscn  coal_bunker.tscn  boiler_firebox.tscn  water_tower.tscn
 │   │   ├── water_tank.tscn  repair_point.tscn  deck_gun.tscn  ammo_magazine.tscn  workshop.tscn
-│   │   ├── oasis_market.tscn  cargo_hold_deposit.tscn  gangway.tscn
+│   │   ├── oasis_market.tscn  cargo_hold_deposit.tscn  gangway.tscn  chart_table.tscn  telescope.tscn
 │   └── ui/
 │       ├── hud.tscn  lobby.tscn  name_tag.tscn
 │       ├── gun_overlay.tscn                   # Crosshair / elevation / reload bar (gunner only)
@@ -88,7 +88,7 @@ res://
     ├── ship_controller.gd                     # Locomotion + damage model + economy state
     ├── steam_plant.gd                         # Coal → heat → pressure → power
     ├── player_controller.gd                   # Movement, look, interact, carry, helm/gun lock
-    ├── player_nametag.gd  hud.gd  lobby.gd  gun_overlay.gd  trade_panel.gd  debug_panel.gd  chart_panel.gd  chart_map.gd
+    ├── player_nametag.gd  hud.gd  lobby.gd  gun_overlay.gd  trade_panel.gd  debug_panel.gd  chart_panel.gd  chart_map.gd  telescope_overlay.gd
     ├── ai_ship_controller.gd                  # Bandit brain (APPROACH/PACE, fires broadsides)
     ├── bandit_director.gd                     # Host-only bandit spawner + cannonball spawn/despawn hub
     ├── cannonball.gd                          # Deterministic ballistic shell, host-only hit detection
@@ -100,7 +100,7 @@ res://
     ├── interactable.gd                        # Base Area3D class
     └── interactables/
         ├── helm.gd  coal_bunker.gd  water_tank.gd  boiler_firebox.gd  water_tower.gd
-        ├── repair_point.gd  workshop.gd (kit repository)  bed.gd
+        ├── repair_point.gd  workshop.gd (kit repository)  bed.gd  chart_table.gd  telescope.gd
         ├── (scripts/cargo_panel.gd — code-built withdraw chooser)
         ├── (scenes/items/ — water_bottle.tscn, sausage.tscn physical consumables)
         ├── deck_gun.gd  ammo_magazine.gd  workshop.gd
@@ -564,7 +564,7 @@ generator: pure function of `Regions.world_seed` + per-region salt.
 
 ---
 
-## Navigation chart (Tier 2, T2.3 — Slice A)
+## Navigation chart (Tier 2, T2.3 — Slices A + B)
 
 Crew-shared chart state lives on a third autoload, **`ChartState`**
 (`scripts/autoloads/chart_state.gd`). Host-authoritative; replication
@@ -625,16 +625,79 @@ A code-mesh table prop. Joins group `chart_table`; `interact()` is a no-op
 since the panel is opened locally (see player_controller intercept). Place
 it manually in `ship.tscn` wherever the bridge / chart room lives.
 
-### Slice B / C scope (planned, not in this build)
+### Triangulation + telescope (Slice B — shipped)
 
-- Telescope interactable (manned, camera swap, bearing HUD).
-- Bearing entry form on the chart, line rendering, intersection / "Take
-  fix". `host_set_last_fix` is already the entry point.
-- DR estimate + uncertainty circle (read `last_fix` + integrate
-  `current_speed × Basis(UP, virtual_yaw)` over `world_time - last_fix.time`).
-- Hard-mode visual differentiation when `dr_enabled` flips.
-- Telescope spot → `host_mark_discovered(poi_id)` for minor POIs.
-- Storm / night range degradation on the telescope.
+**`Telescope`** is a deck-mounted spy-glass interactable
+(`scripts/interactables/telescope.gd`, `scenes/interactables/telescope.tscn`).
+Same manned pattern as the deck gun: server-authoritative traverse +
+elevate (synchronised), one observer at a time
+(`NetworkManager.current_observer` parallels `current_gunner`),
+`player_controller` swaps to `TelescopeCamera` (15° FOV "zoom") and
+freezes mouse-look while observing.
+
+Observer inputs:
+- **A / D** traverse a small step (0.5° per tap — fine aim).
+- **W / S** elevate / depress (clamped −15° to +35°).
+- **Left mouse** = `request_spot` → host finds the nearest discovered POI
+  inside the `spot_cone_deg` (3°) crosshair cone, within an *effective*
+  range that falls off with sandstorm intensity and night daylight. Result
+  RPCs back **only to the spotter** as POI name + exact bearing + range
+  ("Rust Pump — bearing 047.3° — 1.23 km" on the `TelescopeOverlay`).
+- **E** unmounts.
+
+Spotting a POI that was undiscovered (planned minor POIs) flags it via
+`ChartState.host_mark_discovered`. v1 settlements are all pre-discovered
+so this is a no-op today; the wiring is ready for T2.2 minor-POI work.
+
+**Chart bearing entry.** The spotter reads the line over voice; the chart
+player picks the POI from a dropdown (only **discovered** POIs appear),
+types the bearing in degrees, clicks Add. `ChartState.request_add_bearing`
+stores it (replicated to all peers). The chart panel draws the line
+through `poi.world_pos` along the spotter's back-azimuth, extending in
+both directions (`BEARING_LINE_LENGTH` = 4500 m). Lines are tinted by
+**spotter peer id** so the chart reader can tell whose bearings cross.
+
+**Take fix.** Once ≥ 2 bearing lines exist, **Take fix (2+)** intersects
+the two most recent in 2D (`_compute_fix_from_two_latest`). The crew's
+`last_fix` updates at the intersection (replicated), resetting DR error.
+Bearing lines stay drawn — clearing is manual (**Clear lines** button)
+so additional bearings can refine confidence visually.
+
+**Dead reckoning.** `ChartState.dr_estimate(now, ship_pos)` and
+`dr_uncertainty_radius(now)` return a deterministic drifted estimate +
+growing uncertainty circle:
+
+```
+elapsed = now - last_fix.time
+drift   = (sin(elapsed × ω + φ), cos(elapsed × 1.3ω + φ)) × min(elapsed × 0.4, 150)
+radius  = clamp(elapsed × 0.7, 0, 200)
+```
+
+Every peer computes the same drift from `GameState.world_time()` +
+`last_fix`, so all chart views agree.
+
+**Hard mode** (`dr_enabled = false`, host-only toggle): chart shows no
+live estimate at all. Only the static `last_fix` marker (green X)
+remains. Triangulation is the only way to update position knowledge.
+
+The chart's per-frame ship-arrow path branches:
+
+| `dr_enabled` | `last_fix` | What's drawn                                    |
+|--------------|-----------|--------------------------------------------------|
+| true         | yes       | drifted-blue arrow + uncertainty circle, no real |
+| true         | no        | real ship arrow (no drift accumulated yet)       |
+| false        | yes       | only the static last-fix X — no arrow            |
+| false        | no        | nothing (truly blind — must triangulate)         |
+
+### Slice C scope (planned, not in this build)
+
+- Minor POIs seeded per region (POIRegistry expansion). Spotting fills
+  them onto the chart.
+- Storm/night UI cues on the telescope (current range readout, fading
+  text in heavy weather).
+- Multi-observer support (more than one telescope; per-spotter handoff).
+- Replace the HUD's `X / Z` readout with HDG + speed + (DR-blurred)
+  position once the chart system has bedded in.
 
 ---
 
@@ -779,6 +842,14 @@ Future item — speed × + jump × + no-clip cover most testing needs.
 | `interact`      | E            |
 | `fire`          | Left Mouse   |
 | `debug_toggle`  | F1 — host-only god-mode overlay (see Debug / god mode) |
+
+Context-sensitive remapping (additions for T2.3):
+
+- **At the telescope**: A/D fine-traverse (0.5° per tap), W/S elevate,
+  Left-click spots the nearest POI in the crosshair cone, E leaves the
+  scope. Mouse-look frozen.
+- **At the chart table**: opens the chart overlay locally — no extra key
+  bindings, the overlay handles its own input.
 
 Context-sensitive remapping (player_controller):
 

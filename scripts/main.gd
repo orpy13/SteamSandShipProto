@@ -13,6 +13,7 @@ extends Node
 @onready var _ui_layer: CanvasLayer = $UILayer
 var _debug_panel: DebugPanel = null
 var _chart_panel: ChartPanel = null
+var _telescope_overlay: TelescopeOverlay = null
 
 
 ## Wire up NetworkManager → UI transitions and give the HUD its ship reference.
@@ -34,6 +35,11 @@ func _ready() -> void:
 	_chart_panel = ChartPanel.new()
 	_chart_panel.name = "ChartPanel"
 	_ui_layer.add_child(_chart_panel)
+	# Telescope HUD — crosshair + bearing readout, shown only while this peer
+	# is the observer (subscribes to NetworkManager.observer_changed).
+	_telescope_overlay = TelescopeOverlay.new()
+	_telescope_overlay.name = "TelescopeOverlay"
+	_ui_layer.add_child(_telescope_overlay)
 
 
 ## Hide the lobby and show the HUD once we have a live session — host start

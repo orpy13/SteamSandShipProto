@@ -95,6 +95,7 @@ var _current_interactable: Interactable = null
 var _last_emitted_prompt: String = ""  # to debounce per-frame prompt refreshes
 var _is_helmsman: bool = false  # true while *this* player is driving the ship
 var _is_gunner: bool = false    # true while *this* player is manning the deck gun
+var _is_observer: bool = false  # true while *this* player is at the telescope (T2.3)
 
 # Items carried in the hand. Empty string = nothing. Replicated via RPC so
 # remote players see the visual prop in our socket.
@@ -128,14 +129,19 @@ func _ready() -> void:
 	_resolve_animations()
 	NetworkManager.helmsman_changed.connect(_on_helmsman_changed)
 	NetworkManager.gunner_changed.connect(_on_gunner_changed)
+	NetworkManager.observer_changed.connect(_on_observer_changed)
 	_is_helmsman = NetworkManager.current_helmsman != 0 \
 			and NetworkManager.current_helmsman == multiplayer.get_unique_id()
 	_is_gunner = NetworkManager.current_gunner != 0 \
 			and NetworkManager.current_gunner == multiplayer.get_unique_id()
+	_is_observer = NetworkManager.current_observer != 0 \
+			and NetworkManager.current_observer == multiplayer.get_unique_id()
 	if _is_helmsman:
 		_emit_prompt("Press E to release the helm")
 	elif _is_gunner:
 		_refresh_gunner_prompt()
+	elif _is_observer:
+		_emit_prompt("Press E to leave the telescope")
 	# Subscribe to ship damage events for local screen shake. Fires on every
 	# peer (the ship's damage signal is RPC-broadcast), so each crew member
 	# feels the hit on their own screen.
@@ -192,7 +198,7 @@ func _play_anim_state(state: int) -> void:
 ## reliable RPC stays quiet. call_local plays it here too.
 func _update_anim_state() -> void:
 	var state := 0
-	if _is_helmsman or _is_gunner or is_dead:
+	if _is_helmsman or _is_gunner or _is_observer or is_dead:
 		state = 0
 	elif not is_on_floor():
 		state = 2
@@ -274,6 +280,53 @@ func _find_gun_camera(gun: Node) -> Camera3D:
 	return gun.get_node_or_null("TraverseMount/ElevateBarrel/GunCamera") as Camera3D
 
 
+## Locate the Camera3D mounted to the telescope. Returns null pre-init.
+func _find_telescope_camera(t: Node) -> Camera3D:
+	if t == null:
+		return null
+	return t.get_node_or_null("TraverseMount/ElevateBarrel/TelescopeCamera") as Camera3D
+
+
+## Track the observer role. Mirrors `_on_gunner_changed`: snap to seat,
+## swap camera to the scope, freeze input. The telescope_overlay listens to
+## NetworkManager.observer_changed itself to flip its visibility.
+func _on_observer_changed(peer_id: int) -> void:
+	if not is_multiplayer_authority():
+		return
+	var was := _is_observer
+	_is_observer = peer_id != 0 and peer_id == multiplayer.get_unique_id()
+	var telescope := get_tree().get_first_node_in_group("telescope")
+	var t_cam := _find_telescope_camera(telescope)
+	if _is_observer:
+		_snap_to_observer_seat()
+		_camera.current = false
+		if t_cam != null:
+			t_cam.current = true
+		_emit_prompt("Press E to leave the telescope")
+	elif was:
+		if t_cam != null:
+			t_cam.current = false
+		_camera.current = true
+		# Same fix as the gun: the seat snap inherits ship pitch/roll into our
+		# body rotation; clear so move_and_slide doesn't think we're tilted.
+		rotation = Vector3.ZERO
+		var prompt := ""
+		if _current_interactable != null:
+			prompt = _current_interactable.get_prompt(self)
+		_emit_prompt(prompt)
+
+
+## Pose the body on the telescope's OperatorSeat marker. Called on entry +
+## every physics tick while observing (ship pitches under us otherwise).
+func _snap_to_observer_seat() -> void:
+	var t := get_tree().get_first_node_in_group("telescope")
+	if t == null or not t.has_method("get_operator_seat"):
+		return
+	var seat: Marker3D = t.get_operator_seat()
+	if seat:
+		global_transform = seat.global_transform
+
+
 ## Re-show the gunner's prompt with the latest ammo count.
 func _on_gun_ammo_changed(_new_value: int) -> void:
 	if _is_gunner:
@@ -353,8 +406,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not is_multiplayer_authority():
 		return
 	if event is InputEventMouseMotion:
-		if _is_gunner:
-			return  # mouse-look frozen — view belongs to the gun camera
+		if _is_gunner or _is_observer:
+			return  # mouse-look frozen — view belongs to the manned camera
 		# Suppress camera turn whenever the mouse is visible (trade panel
 		# open, debug Esc, etc.) so menu-clicks don't yank the view.
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
@@ -387,6 +440,15 @@ func _physics_process(delta: float) -> void:
 		# input goes through _poll_interact.
 		velocity = Vector3.ZERO
 		_snap_to_gunner_seat()
+		_interact_ray.rotation = Vector3(_pitch, _yaw, 0.0)
+		_update_anim_state()
+		_poll_interact()
+		return
+	if _is_observer:
+		# Same lock as gunner: snap each tick (terrain pitch/roll shake) and
+		# route inputs to the telescope. E unmounts via _poll_interact.
+		velocity = Vector3.ZERO
+		_snap_to_observer_seat()
 		_interact_ray.rotation = Vector3(_pitch, _yaw, 0.0)
 		_update_anim_state()
 		_poll_interact()
@@ -469,6 +531,9 @@ func _poll_interact() -> void:
 	if _is_gunner:
 		_poll_gun_input()
 		return
+	if _is_observer:
+		_poll_telescope_input()
+		return
 	if _is_helmsman:
 		if Input.is_action_just_pressed("interact"):
 			var helm := get_tree().get_first_node_in_group("helm")
@@ -546,6 +611,31 @@ func _poll_gun_input() -> void:
 		# Route through the standard interact path so the gun's own toggle
 		# logic in interact() handles release attribution to the right peer.
 		_request_interact.rpc_id(1, gun.get_path())
+
+
+## Telescope inputs (Tier 2, T2.3 Slice B). A/D and W/S nudge the scope a
+## small step each tap (no auto-repeat); left-click spots; E unmounts via
+## the standard interact path so role bookkeeping stays in one place.
+##
+## Steering convention mirrors the deck gun: A turns the scope LEFT visually
+## (positive yaw rotates the mount such that the barrel tips to +X, which is
+## screen-right for an observer looking down the barrel — so we negate D).
+func _poll_telescope_input() -> void:
+	var telescope := get_tree().get_first_node_in_group("telescope")
+	if telescope == null:
+		return
+	if Input.is_action_just_pressed("move_right"):
+		telescope.request_traverse.rpc_id(1, -1)
+	if Input.is_action_just_pressed("move_left"):
+		telescope.request_traverse.rpc_id(1, 1)
+	if Input.is_action_just_pressed("move_forward"):
+		telescope.request_elevate.rpc_id(1, 1)
+	if Input.is_action_just_pressed("move_back"):
+		telescope.request_elevate.rpc_id(1, -1)
+	if Input.is_action_just_pressed("fire"):
+		telescope.request_spot.rpc_id(1)
+	if Input.is_action_just_pressed("interact"):
+		_request_interact.rpc_id(1, telescope.get_path())
 
 
 ## Host-side validation. The client sends a node path; we resolve it and call
