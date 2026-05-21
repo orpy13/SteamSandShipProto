@@ -587,6 +587,35 @@ Minor POIs (salvage, wrecks, ruins seeded per region) are deferred — the
 registry leaves a stub but no entries. Determinism for the future
 generator: pure function of `Regions.world_seed` + per-region salt.
 
+### Authoring new POIs
+
+The settlement scene a POI spawns follows this resolution order in
+`ChunkGen.spawn_placeholder_object` (search for `if obj_type == "oasis":`):
+
+1. **Per-POI `scene_path` override** — add a `scene_path` field on the
+   `POIRegistry.SETTLEMENTS` entry pointing at a custom `.tscn`. Use this
+   for unique landmarks (a hero ruin, a wreck, a single-of-a-kind shrine).
+   The custom scene root needs to expose an `oasis_type` property
+   (extending `oasis.gd` is the easiest path) so the Market child still
+   picks up mining-vs-caravan pricing.
+2. **Mapped subtype default** — `oasis_subtype = "mining"` →
+   `oasis_mining.tscn` (Western family), `"caravan"` → `oasis_caravan.tscn`
+   (Persian family). Both bundle 3–4 building instances (mix of building
+   + tower) and the `Market` child.
+
+Workflow to add a new POI:
+1. Append an entry to `POIRegistry.SETTLEMENTS` with `id`, `display_name`,
+   `world_pos`, `oasis_subtype`, `services`. The chunk it lands in spawns
+   the oasis automatically next session (or after teleport).
+2. The `DebugPanel` teleport dropdown picks it up from `all_settlements()`
+   for free.
+3. For a unique-looking POI, also create `res://scenes/world/<name>.tscn`
+   (duplicate one of the existing oasis scenes as a starting point) and
+   set `scene_path` on the registry entry.
+
+The procedural-hut placeholder (`oasis.tscn`) is retained as a fallback
+template; the live registry currently uses only the two themed scenes.
+
 ---
 
 ## Navigation chart (Tier 2, T2.3 — Slices A + B)

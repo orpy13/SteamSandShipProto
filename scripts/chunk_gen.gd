@@ -12,7 +12,13 @@ extends RefCounted
 # `scripts/autoloads/regions.gd` for the sampler that drives this.
 
 const WATER_TOWER_SCENE: PackedScene = preload("res://scenes/interactables/water_tower.tscn")
-const OASIS_SCENE: PackedScene = preload("res://scenes/world/oasis.tscn")
+## Default oasis scenes per `oasis_subtype`. Mining settlements use the
+## Western family (rough frontier-town look); caravan settlements use the
+## Persian family (caravanserai look). A POI in the registry can override
+## with its own `scene_path` for a one-off layout — see
+## `_make_settlement_record` below.
+const OASIS_MINING_SCENE: PackedScene = preload("res://scenes/world/oasis_mining.tscn")
+const OASIS_CARAVAN_SCENE: PackedScene = preload("res://scenes/world/oasis_caravan.tscn")
 
 # Curated oasis / settlement placement moved to `POIRegistry` (Tier 2, T2.2).
 # Kept as a compatibility shim so anything reading this const still resolves;
@@ -298,13 +304,23 @@ static func _make_settlement_record(settlement: Dictionary, key: Vector2i,
 	# Stable yaw per settlement id so rebuilds match (no RNG draw — keeps the
 	# editor preview deterministic and free of order-sensitive coupling).
 	var yaw := wrapf(float(hash(String(settlement["id"]))) * 0.001, -PI, PI)
-	return {
+	var record := {
 		"type": "oasis",
 		"subtype": String(settlement["oasis_subtype"]),
 		"poi_id": String(settlement["id"]),
 		"pos": Vector3(lx, h, lz),
 		"yaw": yaw,
 	}
+	# Optional per-POI scene override — set `scene_path` on a settlement
+	# entry to spawn a custom .tscn instead of the default mining/caravan
+	# scene. The custom scene must still expose an `oasis_type` setter (or
+	# the script attached to its root must accept that property) so the
+	# Market child stays type-aware.
+	if settlement.has("scene_path"):
+		var sp := String(settlement["scene_path"])
+		if not sp.is_empty():
+			record["scene_path"] = sp
+	return record
 
 static func should_spawn_water_tower(key: Vector2i, load_radius: int) -> bool:
 	var distance := maxi(absi(key.x), absi(key.y))
@@ -386,11 +402,26 @@ static func spawn_placeholder_object(body: Node3D, obj: Dictionary, idx: int) ->
 		body.add_child(tower)
 		return
 	if obj_type == "oasis":
-		var oasis := OASIS_SCENE.instantiate()
+		# Resolution order: explicit per-POI `scene_path` override → mapped
+		# subtype scene → mining fallback. Override lets you author a unique
+		# scene for one settlement (e.g. a landmark ruin); the default path
+		# just picks Western vs Persian by oasis_subtype.
+		var subtype := String(obj.get("subtype", "mining"))
+		var override := String(obj.get("scene_path", ""))
+		var scene_to_use: PackedScene = null
+		if not override.is_empty() and ResourceLoader.exists(override):
+			var loaded: Resource = load(override)
+			if loaded is PackedScene:
+				scene_to_use = loaded
+			else:
+				push_warning("ChunkGen: POI scene_path is not a PackedScene: %s" % override)
+		if scene_to_use == null:
+			scene_to_use = OASIS_CARAVAN_SCENE if subtype == "caravan" else OASIS_MINING_SCENE
+		var oasis := scene_to_use.instantiate()
 		oasis.name = "Oasis_%03d" % idx
 		# Set oasis_type before add_child so _ready propagates it to the
 		# child Market in time (mirrors chunk_manager).
-		oasis.set("oasis_type", String(obj.get("subtype", "mining")))
+		oasis.set("oasis_type", subtype)
 		oasis.position = obj.get("pos", Vector3.ZERO)
 		oasis.rotation.y = float(obj.get("yaw", 0.0))
 		body.add_child(oasis)

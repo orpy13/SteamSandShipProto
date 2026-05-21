@@ -1,0 +1,24 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/oasis.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/interactables/oasis_market.tscn" id="2"]
+[ext_resource type="PackedScene" path="res://scenes/world/buildingWestern/building_western.tscn" id="3"]
+[ext_resource type="PackedScene" path="res://scenes/world/buildingWesternTower/building_western_tower.tscn" id="4"]
+
+[node name="Oasis" type="Node3D"]
+script = ExtResource("1")
+oasis_type = "mining"
+
+[node name="BuildingFL" parent="." instance=ExtResource("3")]
+transform = Transform3D(0.155882, 0, 0.09, 0, 0.18, 0, -0.09, 0, 0.155882, -9.5, 1.4, -8.0)
+
+[node name="BuildingFR" parent="." instance=ExtResource("3")]
+transform = Transform3D(0.155882, 0, -0.09, 0, 0.18, 0, 0.09, 0, 0.155882, 9.5, 1.4, -8.0)
+
+[node name="TowerBack" parent="." instance=ExtResource("4")]
+transform = Transform3D(0.15, 0, 0, 0, 0.15, 0, 0, 0, 0.15, 0.0, 1.0, -14.0)
+
+[node name="BuildingSide" parent="." instance=ExtResource("3")]
+transform = Transform3D(-0.09, 0, 0.155882, 0, 0.18, 0, -0.155882, 0, -0.09, -13.0, 1.2, 4.0)
+
+[node name="Market" parent="." instance=ExtResource("2")]
