@@ -636,14 +636,22 @@ elevate (synchronised), one observer at a time
 freezes mouse-look while observing.
 
 Observer inputs:
-- **A / D** traverse a small step (0.5° per tap — fine aim).
-- **W / S** elevate / depress (clamped −15° to +35°).
+- **Mouse motion** drives fine aim (continuous; each physics tick the
+  observer flushes accumulated mouse-pixels × `MOUSE_SENSITIVITY` into a
+  single `request_aim_delta` unreliable RPC).
+- **A / D / W / S held** sweep at `key_aim_rate` rad/sec (45°/sec default)
+  — added into the same per-tick delta.
 - **Left mouse** = `request_spot` → host finds the nearest discovered POI
-  inside the `spot_cone_deg` (3°) crosshair cone, within an *effective*
-  range that falls off with sandstorm intensity and night daylight. Result
-  RPCs back **only to the spotter** as POI name + exact bearing + range
-  ("Rust Pump — bearing 047.3° — 1.23 km" on the `TelescopeOverlay`).
+  inside the `spot_cone_deg` (3°) crosshair cone. **No range gate** — if
+  you can see it in the scope, you can spot it (storm/night degrade
+  visibility *visually* through fog and dim light, which is the natural
+  in-fiction limit). Result RPCs back **only to the spotter** as POI name
+  + exact bearing + range ("Rust Pump — bearing 047.3° — 1.23 km" on the
+  `TelescopeOverlay`).
 - **E** unmounts.
+
+Elevate clamp is −30° to +45°. Camera sits past the front of the tube so
+the tube interior never clips the view, even at full depression.
 
 Spotting a POI that was undiscovered (planned minor POIs) flags it via
 `ChartState.host_mark_discovered`. v1 settlements are all pre-discovered
@@ -845,11 +853,12 @@ Future item — speed × + jump × + no-clip cover most testing needs.
 
 Context-sensitive remapping (additions for T2.3):
 
-- **At the telescope**: A/D fine-traverse (0.5° per tap), W/S elevate,
-  Left-click spots the nearest POI in the crosshair cone, E leaves the
-  scope. Mouse-look frozen.
+- **At the telescope**: mouse motion = continuous fine aim, A/D/W/S
+  held = continuous sweep, Left-click spots, E leaves the scope.
 - **At the chart table**: opens the chart overlay locally — no extra key
-  bindings, the overlay handles its own input.
+  bindings, the overlay handles its own input. Esc closes the chart and
+  re-captures the mouse cleanly (the close handler consumes the event so
+  the global debug Esc-release doesn't refire afterward).
 
 Context-sensitive remapping (player_controller):
 

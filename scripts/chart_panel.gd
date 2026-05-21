@@ -219,12 +219,17 @@ func close() -> void:
 		_placing_marker_btn.set_pressed_no_signal(false)
 
 
-## Esc closes — same convenience as the trade panel.
+## Esc closes — same convenience as the trade panel. Mark the event handled
+## so the global Esc debug-release in `player_controller._unhandled_input`
+## doesn't fire after us and re-show the mouse (the bug: Esc both closes the
+## chart AND flips mouse back to visible). _input has higher priority than
+## _unhandled_input so set_input_as_handled blocks the second handler.
 func _input(event: InputEvent) -> void:
 	if not visible:
 		return
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		close()
+		get_viewport().set_input_as_handled()
 
 
 # ── Coord conversion ─────────────────────────────────────────────────────────

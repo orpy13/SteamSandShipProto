@@ -96,6 +96,10 @@ var _last_emitted_prompt: String = ""  # to debounce per-frame prompt refreshes
 var _is_helmsman: bool = false  # true while *this* player is driving the ship
 var _is_gunner: bool = false    # true while *this* player is manning the deck gun
 var _is_observer: bool = false  # true while *this* player is at the telescope (T2.3)
+# Accumulated mouse motion since the last physics tick, applied to telescope
+# aim and zeroed each tick. Mouse pixels → radians via MOUSE_SENSITIVITY.
+var _telescope_mouse_dx: float = 0.0
+var _telescope_mouse_dy: float = 0.0
 
 # Items carried in the hand. Empty string = nothing. Replicated via RPC so
 # remote players see the visual prop in our socket.
@@ -406,8 +410,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not is_multiplayer_authority():
 		return
 	if event is InputEventMouseMotion:
-		if _is_gunner or _is_observer:
-			return  # mouse-look frozen — view belongs to the manned camera
+		if _is_gunner:
+			return  # mouse-look frozen — view belongs to the gun camera
+		if _is_observer:
+			# Accumulate; _poll_telescope_input flushes into a single delta
+			# RPC per physics tick (unreliable, batched).
+			_telescope_mouse_dx += event.relative.x
+			_telescope_mouse_dy += event.relative.y
+			return
 		# Suppress camera turn whenever the mouse is visible (trade panel
 		# open, debug Esc, etc.) so menu-clicks don't yank the view.
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
@@ -613,25 +623,40 @@ func _poll_gun_input() -> void:
 		_request_interact.rpc_id(1, gun.get_path())
 
 
-## Telescope inputs (Tier 2, T2.3 Slice B). A/D and W/S nudge the scope a
-## small step each tap (no auto-repeat); left-click spots; E unmounts via
-## the standard interact path so role bookkeeping stays in one place.
+## Telescope inputs (Tier 2, T2.3 Slice B + polish).
+##   • Mouse motion drives fine aim (continuous; delta batched per physics
+##     tick to one unreliable RPC).
+##   • A/D/W/S HELD = continuous sweep at `key_aim_rate` (also added into
+##     the same delta).
+##   • Left mouse = spot.
+##   • E = unmount via the standard interact path.
 ##
-## Steering convention mirrors the deck gun: A turns the scope LEFT visually
-## (positive yaw rotates the mount such that the barrel tips to +X, which is
-## screen-right for an observer looking down the barrel — so we negate D).
+## Sign conventions: mouse-right (+dx) → traverse right (negative yaw on
+## the mount because the camera is rear-mounted looking +Z; same logic as
+## the deck gun's inverted-D treatment). Mouse-down (+dy) → barrel down
+## (negative elevate_pitch, since elevate_pitch is "positive = up").
 func _poll_telescope_input() -> void:
 	var telescope := get_tree().get_first_node_in_group("telescope")
 	if telescope == null:
 		return
-	if Input.is_action_just_pressed("move_right"):
-		telescope.request_traverse.rpc_id(1, -1)
-	if Input.is_action_just_pressed("move_left"):
-		telescope.request_traverse.rpc_id(1, 1)
-	if Input.is_action_just_pressed("move_forward"):
-		telescope.request_elevate.rpc_id(1, 1)
-	if Input.is_action_just_pressed("move_back"):
-		telescope.request_elevate.rpc_id(1, -1)
+	var dt := get_physics_process_delta_time()
+	# Mouse contribution.
+	var yaw_d := -_telescope_mouse_dx * MOUSE_SENSITIVITY
+	var pitch_d := -_telescope_mouse_dy * MOUSE_SENSITIVITY
+	_telescope_mouse_dx = 0.0
+	_telescope_mouse_dy = 0.0
+	# Held-key contribution.
+	var key_rate: float = float(telescope.get("key_aim_rate"))
+	if Input.is_action_pressed("move_left"):
+		yaw_d += key_rate * dt
+	if Input.is_action_pressed("move_right"):
+		yaw_d -= key_rate * dt
+	if Input.is_action_pressed("move_forward"):
+		pitch_d += key_rate * dt
+	if Input.is_action_pressed("move_back"):
+		pitch_d -= key_rate * dt
+	if not is_zero_approx(yaw_d) or not is_zero_approx(pitch_d):
+		telescope.request_aim_delta.rpc_id(1, yaw_d, pitch_d)
 	if Input.is_action_just_pressed("fire"):
 		telescope.request_spot.rpc_id(1)
 	if Input.is_action_just_pressed("interact"):

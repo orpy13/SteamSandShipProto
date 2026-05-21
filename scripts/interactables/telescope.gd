@@ -35,19 +35,19 @@ extends Interactable
 ##
 
 # ── Tuning ────────────────────────────────────────────────────────────────────
-@export var traverse_step: float = deg_to_rad(0.5)   # rad per A/D tap — fine
-@export var elevate_step: float = deg_to_rad(0.5)
-@export var min_elevation: float = deg_to_rad(-15.0)
-@export var max_elevation: float = deg_to_rad(35.0)
+## Held-key turn rate (rad/sec). Hold A/D/W/S for a continuous sweep; mouse
+## motion adds on top for fine aim.
+@export var key_aim_rate: float = deg_to_rad(45.0)
+@export var min_elevation: float = deg_to_rad(-30.0)
+@export var max_elevation: float = deg_to_rad(45.0)
 ## Half-angle of the spotting cone. POIs within this angle of the crosshair
 ## (in world bearing space) are candidates for a successful spot.
 @export var spot_cone_deg: float = 3.0
-## Maximum spot range in clear daylight. Drops with storm intensity and at
-## night so the navigation loop has teeth in bad weather (mirrors the AI
-## hold-fire rule).
-@export var max_range_clear: float = 3000.0
-@export var storm_range_falloff: float = 0.7        # k=0..1 → range × (1 − k×falloff)
-@export var min_daylight_factor: float = 0.25       # range × max(daylight, this)
+## Effectively infinite — if you can see a POI through the scope, you can
+## spot it. Storm/night degrade visibility *visually* (fog occludes,
+## night dims), so we don't gate spotting on range as well. Set to a finite
+## large number rather than INF so it survives serialisation.
+@export var max_range: float = 1.0e9
 
 # Local signal — fires on the spotter peer after a successful spot.
 signal spot_result(poi_id: String, display_name: String, bearing_deg: float, range_m: float)
@@ -132,24 +132,22 @@ func get_prompt(player: Node) -> String:
 
 # ── Observer input RPCs (sender must be current observer) ────────────────────
 
-@rpc("any_peer", "call_local", "reliable")
-func request_traverse(step_dir: int) -> void:
+## Continuous aim delta — sent each physics tick by the observer. Combines
+## mouse motion + held-key sweeps into a single yaw/pitch delta. Unreliable
+## so we don't flood the wire at 60 Hz; a dropped packet just delays the
+## rotation by one tick.
+@rpc("any_peer", "call_local", "unreliable")
+func request_aim_delta(yaw_delta: float, pitch_delta: float) -> void:
 	if not multiplayer.is_server():
 		return
 	if not _sender_is_current_observer():
 		return
-	# Full 360° traverse — the observer can sweep the whole horizon.
-	traverse_yaw = wrapf(traverse_yaw + float(step_dir) * traverse_step, -PI, PI)
-
-
-@rpc("any_peer", "call_local", "reliable")
-func request_elevate(step_dir: int) -> void:
-	if not multiplayer.is_server():
-		return
-	if not _sender_is_current_observer():
-		return
-	elevate_pitch = clampf(elevate_pitch + float(step_dir) * elevate_step,
-			min_elevation, max_elevation)
+	# Anti-cheat clamp — no single tick should swing more than ~10°.
+	const MAX_TICK := 0.18
+	yaw_delta = clampf(yaw_delta, -MAX_TICK, MAX_TICK)
+	pitch_delta = clampf(pitch_delta, -MAX_TICK, MAX_TICK)
+	traverse_yaw = wrapf(traverse_yaw + yaw_delta, -PI, PI)
+	elevate_pitch = clampf(elevate_pitch + pitch_delta, min_elevation, max_elevation)
 
 
 ## Server-side spot: find the nearest discovered POI inside the crosshair
@@ -173,7 +171,6 @@ func request_spot() -> void:
 		return
 	var ship_pos: Vector3 = ship.world_offset
 	var crosshair_deg := current_world_bearing_deg()
-	var eff_range := _effective_range()
 	var cone := spot_cone_deg
 	var best_id := ""
 	var best_name := ""
@@ -184,7 +181,7 @@ func request_spot() -> void:
 		var delta_x := pos.x - ship_pos.x
 		var delta_z := pos.z - ship_pos.z
 		var r := sqrt(delta_x * delta_x + delta_z * delta_z)
-		if r > eff_range:
+		if r > max_range:
 			continue
 		# Bearing from ship to POI in degrees clockwise from north (+Z).
 		var poi_bearing := wrapf(rad_to_deg(atan2(delta_x, delta_z)), 0.0, 360.0)
@@ -202,21 +199,6 @@ func request_spot() -> void:
 	# Mark discovered (idempotent — already-discovered POIs are skipped).
 	ChartState.host_mark_discovered(best_id)
 	_notify_spot_result.rpc_id(sender, best_id, best_name, best_bearing, best_range)
-
-
-## Effective range = base × (1 − storm × falloff) × max(daylight, floor).
-func _effective_range() -> float:
-	var storm := 0.0
-	var w := get_tree().get_first_node_in_group("weather")
-	if w != null and w.has_method("get_storm_intensity"):
-		storm = float(w.get_storm_intensity())
-	var day := 1.0
-	var dn := get_tree().get_first_node_in_group("day_night")
-	if dn != null and dn.has_method("get_daylight"):
-		day = float(dn.get_daylight())
-	var storm_mult := clampf(1.0 - storm * storm_range_falloff, 0.0, 1.0)
-	var day_mult := maxf(day, min_daylight_factor)
-	return max_range_clear * storm_mult * day_mult
 
 
 ## Signed difference of two compass bearings in degrees, wrapped to [−180, 180].
