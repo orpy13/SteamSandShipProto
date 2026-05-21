@@ -58,3 +58,38 @@ surface_material_override/0 = SubResource("StandardMaterial3D_wmdoi")
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1909977033]
 transform = Transform3D(-4.371139e-08, -1, 0, 1, -4.371139e-08, 0, 0, 0, 1, 0, 0.059438787, 0)
 shape = SubResource("CylinderShape3D_3n3if")
+
+[ext_resource type="Script" path="res://scripts/world_item.gd" id="WorldItemScript_wi"]
+
+[sub_resource type="SphereShape3D" id="InteractAreaShape_wi"]
+radius = 0.9
+
+[sub_resource type="SceneReplicationConfig" id="ReplCfg_wi"]
+properties/0/path = NodePath(".:position")
+properties/0/spawn = true
+properties/0/replication_mode = 1
+properties/1/path = NodePath(".:rotation")
+properties/1/spawn = true
+properties/1/replication_mode = 1
+
+[node name="InteractArea" type="Area3D" parent="."]
+collision_layer = 2
+collision_mask = 0
+script = ExtResource("WorldItemScript_wi")
+
+[node name="InteractCollision" type="CollisionShape3D" parent="InteractArea"]
+shape = SubResource("InteractAreaShape_wi")
+
+[node name="Label" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, 0)
+visible = false
+billboard = 1
+no_depth_test = true
+fixed_size = true
+pixel_size = 0.0035
+font_size = 64
+outline_size = 14
+text = "Item"
+
+[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]
+replication_config = SubResource("ReplCfg_wi")
