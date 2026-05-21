@@ -187,14 +187,44 @@ and water leak rates up to 3× — a wrecked boiler has far less range on the
 same coal/water until repaired. Host-only sim; clients get
 delta-thresholded `_receive_state` RPCs.
 
-**Fuelling (Tier 1, T1.2).** The **coal bunker** (`coal_bunker.gd`) is now a
-finite store: a stoker draws one load at a time (decrementing
-`bunker_coal`, replicated for prompts); when empty, an explicit E *loads*
-it in one batch from `ship.cargo["coal"]`. The new **water tank**
-(`water_tank.gd`, `WaterTank` in ship.tscn) feeds the boiler reservoir from
+**Fuelling (Tier 1, T1.2 + Balance pass).** The **coal bunker**
+(`coal_bunker.gd`) holds **shovel-loads** (the small unit fed into the
+firebox), capacity 50. 1 cargo crate of coal expands to `SHOVELS_PER_CRATE
+= 10` shovels when loaded — so a full bunker = 5 crates from the hold. A
+stoker draws one shovel at a time; when the bunker is empty, an explicit
+E *loads* whole crates from `ship.cargo["coal"]` (no partial crates —
+drain first, then refill). The **water tank** (`water_tank.gd`,
+`WaterTank` in ship.tscn) feeds the boiler reservoir from
 `ship.cargo["water"]` (each cargo unit = `water_per_unit` boiler water);
-desert water towers still top it up directly for free. Empty bunker + empty
-hold → no fuel → the ship strands (T1.6 — not a game-over).
+desert water towers still top it up directly for free. Empty bunker +
+empty hold → no fuel → the ship strands (T1.6 — not a game-over).
+
+**Demand-driven coal + water (balance pass).** Both consumptions follow
+`idle + max × demand³` against the engine telegraph fraction (Stop = 0,
+Half = 0.6, Flank = 1.0). The cubic is so Half / Full barely consume and
+Flank is brutal — mirrors the wear curve.
+
+| Setting | demand | Coal (shovels/sec) | Water (tank/sec) |
+|---------|--------|--------------------|------------------|
+| Stop    | 0      | 0.0005             | 0.005            |
+| Slow    | 0.35   | 0.0048             | 0.014            |
+| Half    | 0.60   | 0.022              | 0.048            |
+| Full    | 0.82   | 0.056              | 0.115            |
+| Flank   | 1.00   | 0.100              | 0.205            |
+
+Expected per-leg cost (15-min short, 40-min medium at Half):
+
+| Leg | Coal (shovels) | Bunker(50) covers? | Cargo crates extra | Water (units) | Tank(100) covers? | Cargo water extra |
+|---|---|---|---|---|---|---|
+| Short @ Half | 20 | ✓ 40 % | 0 | 43 | ✓ 43 % | 0 |
+| Medium @ Half | 53 | × 6 % over | 1 | 116 | × 16 over | 1 |
+| Medium @ Slow | 23 | ✓ 46 % | 0 | 65 | ✓ 65 % | 0 |
+| Medium @ Flank | 120 | × 140 % over | 7 | 246 | × 146 over | 6 |
+
+Slow saves both coal AND water now (water was previously
+generation-coupled = constant regardless of order — fixed by the
+demand-cube model). Heat loss rate dropped from 3.0 → 0.15 so brief
+stops don't kill the fire; the idle smoulder keeps the boiler warm.
 
 ---
 

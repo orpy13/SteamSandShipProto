@@ -26,16 +26,27 @@ signal steam_changed(pressure: float, heat: float, coal: float, water: float)
 @export var max_water_level: float = 100.0
 
 # ── Coal combustion ──────────────────────────────────────────────────────────
+# Balance pass — coal burn is demand-driven: `idle + max × demand³`. Half /
+# Full are gentle, Flank is brutal. `idle_burn` is the banked-fire smoulder
+# that keeps the boiler warm at Stop so re-acceleration is fast.
 @export var coal_energy: float = 50.0         # heat units per coal-mass burned
-@export var coal_burn_rate: float = 0.1      # coal mass burned per second
+@export var coal_idle_burn: float = 0.0005    # mass/sec at Stop (smoulder)
+@export var coal_max_burn: float = 0.10       # mass/sec at Flank
 @export var heat_gain_rate: float = 7.0       # multiplier on burned-coal → heat
-@export var heat_loss_rate: float = 3.0       # ambient cooling per second
+## Slower cooling than before (was 3.0). Boilers retain heat — a brief Stop
+## doesn't kill the fire, the player isn't punished for stopping at an oasis.
+@export var heat_loss_rate: float = 0.15
 
 # ── Steam dynamics ───────────────────────────────────────────────────────────
 @export var pressure_gain_rate: float = 0.09  # heat × this × dt = pressure gained
 @export var pressure_loss_rate: float = 1.1   # idle leak per second
 @export var steam_draw_rate: float = 9.0      # pressure consumed per unit demand
-@export var water_use_rate: float = 0.04      # water consumed per pressure generated
+## Water consumed per second, demand-driven (mirrors coal). Tied directly to
+## `_order_demand` so Stop barely drinks, Flank drinks hard. Replaces the
+## old `water_use_rate * generation` coupling (which made water cost
+## constant regardless of engine order).
+@export var water_idle_use: float = 0.005     # tank units/sec at Stop
+@export var water_max_use: float = 0.20       # tank units/sec at Flank
 @export var relief_pressure: float = 95.0     # safety valve cracks open here
 @export var relief_rate: float = 15.0         # how fast it vents
 
@@ -83,24 +94,34 @@ func _physics_process(delta: float) -> void:
 	var damage := 1.0 - clampf(power_int, 0.0, 1.0)
 	var leak_mult := 1.0 + damage * damage * (LEAK_MAX_MULT - 1.0)
 
+	# Read engine order up-front — the demand fraction drives BOTH coal and
+	# water consumption now (balance pass).
+	var engine_order := 0
+	if ship != null and "engine_order" in ship:
+		engine_order = int(ship.engine_order)
+	var demand := _order_demand(engine_order)
+	var demand_cube := demand * demand * demand
+
 	# ── Burn coal → heat ──────────────────────────────────────────────────
-	var burn := minf(coal_in_firebox, coal_burn_rate * delta)
+	# Demand-driven: idle smoulder + max × demand³. At Stop the fire still
+	# gets a sip of coal so the boiler stays warm (heat_loss_rate is low).
+	var burn_per_s := coal_idle_burn + coal_max_burn * demand_cube
+	var burn := minf(coal_in_firebox, burn_per_s * delta)
 	coal_in_firebox -= burn
 	fire_heat += burn * coal_energy * heat_gain_rate
 	fire_heat = move_toward(fire_heat, 0.0, heat_loss_rate * delta)
 
 	# ── Heat + water → steam pressure ─────────────────────────────────────
-	# Water leaks at leak_mult, so damaged boilers drain the reservoir faster.
+	# Generation depends on heat; water consumption is now demand-driven
+	# (same curve as coal). Damaged boilers leak both pressure and water at
+	# the squared-damage multiplier.
 	if water_level > 0.0 and fire_heat > 1.0:
 		var generation := fire_heat * pressure_gain_rate * delta
 		steam_pressure = minf(steam_pressure + generation, max_pressure)
-		water_level = maxf(0.0, water_level - generation * water_use_rate * leak_mult)
+		var water_per_s := water_idle_use + water_max_use * demand_cube
+		water_level = maxf(0.0, water_level - water_per_s * leak_mult * delta)
 
 	# ── Engine draw → pressure consumption ────────────────────────────────
-	var engine_order := 0
-	if ship != null and "engine_order" in ship:
-		engine_order = int(ship.engine_order)
-	var demand := _order_demand(engine_order)
 	current_load = demand
 	if demand > 0.0:
 		steam_pressure = maxf(0.0, steam_pressure - steam_draw_rate * demand * delta)

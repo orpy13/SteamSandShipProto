@@ -12,7 +12,14 @@ extends Interactable
 ## accurate. Empty bunker + empty hold → no fuel → the ship strands (T1.6).
 ##
 
-@export var bunker_capacity: int = 10
+## Bunker holds shovel-loads (the small unit fed into the firebox). Balance
+## pass: scaled up so a short leg burns a fraction of the bunker and a
+## medium leg drains most of it — see instructions.md → Steam plant.
+@export var bunker_capacity: int = 50
+
+## 1 cargo crate of coal expands into this many shovel-loads when loaded
+## into the bunker. So a full 50-shovel bunker = 5 crates from the hold.
+const SHOVELS_PER_CRATE := 10
 
 # Server-authoritative, replicated for prompts via _set_bunker_coal.
 var bunker_coal: int = 0
@@ -25,13 +32,18 @@ func _ready() -> void:
 	bunker_coal = bunker_capacity
 
 
-## Context-aware prompt: take vs. load vs. dry.
+## Context-aware prompt: take vs. load vs. dry. Loading happens only when
+## the bunker is fully empty (atomic crate units make partial loading
+## fiddly — drain first, then refill).
 func get_prompt(_player: Node) -> String:
 	if bunker_coal > 0:
-		return "Press E to take coal (bunker: %d)" % bunker_coal
+		return "Press E to take coal (bunker: %d/%d shovels)" % [bunker_coal, bunker_capacity]
 	var hold := _hold_coal()
 	if hold > 0:
-		return "Press E to load coal from hold (%d in hold)" % hold
+		var fits: int = bunker_capacity / SHOVELS_PER_CRATE
+		var loadable: int = mini(fits, hold)
+		return "Press E to load %d crate(s) from hold (%d shovels — %d crates in hold)" \
+				% [loadable, loadable * SHOVELS_PER_CRATE, hold]
 	return "Bunker empty — no coal in hold"
 
 
@@ -53,19 +65,22 @@ func interact(peer_id: int) -> void:
 	player.rpc("set_carried_item", "coal")
 
 
-## Pull as much coal as the bunker can hold out of the hold, in one action.
+## Pull as many whole crates from the hold as fit in the bunker. Each crate
+## expands to `SHOVELS_PER_CRATE` shovel-loads. Partial crates aren't split —
+## the player drains the bunker before refilling so spillage isn't possible.
 func _load_from_hold() -> void:
 	var ship := get_tree().get_first_node_in_group("ship")
 	if ship == null or not ship.has_method("remove_cargo"):
 		return
-	var want: int = bunker_capacity - bunker_coal
-	var avail: int = _hold_coal()
-	var move: int = mini(want, avail)
-	if move <= 0:
+	var capacity_shovels: int = bunker_capacity - bunker_coal
+	var max_crates_fit: int = capacity_shovels / SHOVELS_PER_CRATE
+	var avail_crates: int = _hold_coal()
+	var move_crates: int = mini(max_crates_fit, avail_crates)
+	if move_crates <= 0:
 		return
-	if not ship.remove_cargo("coal", move):
+	if not ship.remove_cargo("coal", move_crates):
 		return
-	bunker_coal += move
+	bunker_coal += move_crates * SHOVELS_PER_CRATE
 	_set_bunker_coal.rpc(bunker_coal)
 
 
