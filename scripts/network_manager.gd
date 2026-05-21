@@ -100,6 +100,7 @@ func _on_peer_connected(peer_id: int) -> void:
 		update_player_list.rpc_id(peer_id, players)
 		notify_world_clock.rpc_id(peer_id, GameState.world_epoch, GameState.weather_seed)
 		notify_debug_mode.rpc_id(peer_id, GameState.debug_mode)
+		notify_chart_state.rpc_id(peer_id, ChartState.host_snapshot())
 		notify_helmsman_changed.rpc_id(peer_id, current_helmsman)
 		notify_gunner_changed.rpc_id(peer_id, current_gunner)
 		for existing_id in players.keys():
@@ -218,6 +219,13 @@ func notify_world_clock(epoch: float, seed_value: int) -> void:
 func notify_debug_mode(enabled: bool) -> void:
 	GameState.debug_mode = enabled
 	GameState.debug_mode_changed.emit(enabled)
+
+
+## Host → client: full ChartState snapshot at session join. Subsequent
+## mutations are individual `_set_*` RPCs on ChartState itself.
+@rpc("authority", "reliable")
+func notify_chart_state(snapshot: Dictionary) -> void:
+	ChartState.apply_snapshot(snapshot)
 
 
 ## Host-only entry point: flip the flag locally and broadcast.

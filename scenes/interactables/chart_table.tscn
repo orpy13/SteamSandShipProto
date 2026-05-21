@@ -1,0 +1,40 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/interactables/chart_table.gd" id="1"]
+
+[sub_resource type="BoxShape3D" id="TableShape"]
+size = Vector3(1.4, 1.0, 0.9)
+
+[sub_resource type="BoxMesh" id="TableLegs"]
+size = Vector3(1.4, 0.85, 0.9)
+
+[sub_resource type="BoxMesh" id="TableTop"]
+size = Vector3(1.5, 0.06, 1.0)
+
+[sub_resource type="StandardMaterial3D" id="WoodMat"]
+albedo_color = Color(0.36, 0.24, 0.16, 1.0)
+roughness = 0.85
+
+[sub_resource type="StandardMaterial3D" id="ChartMat"]
+albedo_color = Color(0.85, 0.78, 0.58, 1.0)
+roughness = 0.9
+
+[node name="ChartTable" type="Area3D"]
+collision_layer = 2
+collision_mask = 0
+script = ExtResource("1")
+prompt_text = "Press E to consult chart"
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+shape = SubResource("TableShape")
+
+[node name="Body" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.425, 0)
+mesh = SubResource("TableLegs")
+material_override = SubResource("WoodMat")
+
+[node name="ChartSurface" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.88, 0)
+mesh = SubResource("TableTop")
+material_override = SubResource("ChartMat")

@@ -267,8 +267,10 @@ class TextureRegionSampler extends RegionSampler:
 		if _image == null or _w == 0 or _h == 0:
 			return {ID_DUNES: 1.0}
 		# UV with edge-clamp behaviour — painting up to the edge extends past it.
+		# V is flipped so the TOP of the image is +Z = north (matches the chart
+		# system's pixel-0-is-north convention and standard map authoring).
 		var u := clampf((x + _extent) / (2.0 * _extent), 0.0, 1.0)
-		var v := clampf((z + _extent) / (2.0 * _extent), 0.0, 1.0)
+		var v := clampf(1.0 - (z + _extent) / (2.0 * _extent), 0.0, 1.0)
 		var c := _bilinear(u, v)
 		# Cross-script call: inner classes can't see the enclosing script's
 		# top-level statics by bare name, but the autoload global `Regions`

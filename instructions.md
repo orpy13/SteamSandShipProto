@@ -84,11 +84,11 @@ res://
 │       ├── gun_overlay.tscn                   # Crosshair / elevation / reload bar (gunner only)
 │       └── trade_panel.tscn                   # Buy/sell modal at a market
 └── scripts/
-    ├── main.gd  network_manager.gd (autoload)  game_state.gd  audio_manager.gd  regions.gd (autoload)  poi_registry.gd (autoload)
+    ├── main.gd  network_manager.gd (autoload)  game_state.gd  audio_manager.gd  regions.gd (autoload)  poi_registry.gd (autoload)  chart_state.gd (autoload)
     ├── ship_controller.gd                     # Locomotion + damage model + economy state
     ├── steam_plant.gd                         # Coal → heat → pressure → power
     ├── player_controller.gd                   # Movement, look, interact, carry, helm/gun lock
-    ├── player_nametag.gd  hud.gd  lobby.gd  gun_overlay.gd  trade_panel.gd  debug_panel.gd
+    ├── player_nametag.gd  hud.gd  lobby.gd  gun_overlay.gd  trade_panel.gd  debug_panel.gd  chart_panel.gd  chart_map.gd
     ├── ai_ship_controller.gd                  # Bandit brain (APPROACH/PACE, fires broadsides)
     ├── bandit_director.gd                     # Host-only bandit spawner + cannonball spawn/despawn hub
     ├── cannonball.gd                          # Deterministic ballistic shell, host-only hit detection
@@ -561,6 +561,80 @@ Consumers:
 Minor POIs (salvage, wrecks, ruins seeded per region) are deferred — the
 registry leaves a stub but no entries. Determinism for the future
 generator: pure function of `Regions.world_seed` + per-region salt.
+
+---
+
+## Navigation chart (Tier 2, T2.3 — Slice A)
+
+Crew-shared chart state lives on a third autoload, **`ChartState`**
+(`scripts/autoloads/chart_state.gd`). Host-authoritative; replication
+mirrors `ship.cargo` (per-mutation `any_peer / call_local / reliable`
+RPCs, sender id ∈ {0, 1} gate, full snapshot to joining peers via
+`NetworkManager.notify_chart_state`).
+
+Tracked state:
+- `discovered_pois` — id-keyed dict. All curated `POIRegistry` settlements
+  are seeded as discovered at session start (the "important / main POIs"
+  pre-marked on the chart). Future minor POIs require discovery via the
+  telescope or landmark arrival (Slice B).
+- `markers` (max **`MAX_MARKERS = 16`**) — `{world_pos, label, color,
+  placed_by}`. Any crew member can drop a marker; host validates the cap.
+- `bearing_lines` — `{poi_id, bearing_deg, placed_by}`, Slice B (telescope
+  sightings the chart player enters from voice chat).
+- `last_fix` — `{world_pos, time}` of the most recent confirmed position
+  (triangulation intersection or landmark arrival). Resets DR error.
+- `dr_enabled` — hard-mode toggle. False = chart shows no live position
+  estimate; only `last_fix` plus drawn bearings. Host-only flip.
+
+### Chart UI (`scripts/chart_panel.gd`)
+
+Code-built `Control` parented to `UILayer` by `main.gd` (same instantiation
+pattern as `DebugPanel`). Hidden until a `ChartTable` interactable opens
+it — the panel intercepts the local interact press through
+`player_controller._poll_interact` (mirrors trade-panel / cargo-panel) so
+no host RPC is round-tripped for the open.
+
+Layers (top-to-bottom on a 720 px square):
+1. **Region tint background** — `ChartMap.build()` walks the
+   `Regions.region_at` field on a 256×256 grid covering
+   `WORLD_HALF_EXTENT + BORDER_BAND`, writing `REGION_PALETTE` colours.
+   Works for both noise and texture-painted maps because both flow
+   through `Regions`.
+2. **POI pins** for every discovered settlement (display_name label).
+3. **Player markers** with their labels.
+4. **Ship arrow** (Polygon2D) re-positioned every `_process` from
+   `ship.world_offset` / `virtual_yaw`. Slice B will branch this on
+   `dr_enabled` (DR estimate + uncertainty circle vs. static last-fix).
+
+Coordinate convention: pixel (0, 0) is top-left; **world +Z = north = top
+of the chart**. Matches the inverted-V mapping used by the
+`TextureRegionSampler` so an authored region map looks the same when you
+read it on the in-game chart.
+
+Controls:
+- Toggle **Place marker** → click on the map; LineEdit label is captured
+  before the click. Sends `ChartState.request_add_marker` to the host.
+- **Clear markers** — `request_clear_markers`.
+- **DR enabled** check (disabled-greyed-out for non-hosts).
+- Esc / Close button → `close()`.
+
+### Chart table (`scripts/interactables/chart_table.gd`,
+`scenes/interactables/chart_table.tscn`)
+
+A code-mesh table prop. Joins group `chart_table`; `interact()` is a no-op
+since the panel is opened locally (see player_controller intercept). Place
+it manually in `ship.tscn` wherever the bridge / chart room lives.
+
+### Slice B / C scope (planned, not in this build)
+
+- Telescope interactable (manned, camera swap, bearing HUD).
+- Bearing entry form on the chart, line rendering, intersection / "Take
+  fix". `host_set_last_fix` is already the entry point.
+- DR estimate + uncertainty circle (read `last_fix` + integrate
+  `current_speed × Basis(UP, virtual_yaw)` over `world_time - last_fix.time`).
+- Hard-mode visual differentiation when `dr_enabled` flips.
+- Telescope spot → `host_mark_discovered(poi_id)` for minor POIs.
+- Storm / night range degradation on the telescope.
 
 ---
 

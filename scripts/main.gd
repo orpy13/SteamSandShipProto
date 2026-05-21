@@ -12,6 +12,7 @@ extends Node
 @onready var _ship: CharacterBody3D = $Ship
 @onready var _ui_layer: CanvasLayer = $UILayer
 var _debug_panel: DebugPanel = null
+var _chart_panel: ChartPanel = null
 
 
 ## Wire up NetworkManager → UI transitions and give the HUD its ship reference.
@@ -28,6 +29,11 @@ func _ready() -> void:
 	_debug_panel = DebugPanel.new()
 	_debug_panel.name = "DebugPanel"
 	_ui_layer.add_child(_debug_panel)
+	# Navigation chart overlay (Tier 2, T2.3). Like DebugPanel, it lives
+	# hidden until a ChartTable opens it via player_controller intercept.
+	_chart_panel = ChartPanel.new()
+	_chart_panel.name = "ChartPanel"
+	_ui_layer.add_child(_chart_panel)
 
 
 ## Hide the lobby and show the HUD once we have a live session — host start

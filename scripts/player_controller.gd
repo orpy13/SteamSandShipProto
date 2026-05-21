@@ -499,6 +499,13 @@ func _poll_interact() -> void:
 		if _current_interactable.is_in_group("cargo_hold") and not is_carrying_cargo():
 			_open_cargo_panel(_current_interactable)
 			return
+		# Chart table: open the local chart overlay (UI replicates its own
+		# mutations through ChartState RPCs — no host interact() round-trip).
+		if _current_interactable.is_in_group("chart_table"):
+			var chart := get_tree().get_first_node_in_group("chart_panel")
+			if chart != null and chart.has_method("open"):
+				chart.open()
+			return
 		_request_interact.rpc_id(1, _current_interactable.get_path())
 	elif Input.is_action_just_pressed("interact") and _current_interactable == null:
 		# Not aimed at anything — E eats/drinks a carried ration / water.
