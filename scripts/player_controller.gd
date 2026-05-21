@@ -588,8 +588,12 @@ func _poll_interact() -> void:
 			return
 		_request_interact.rpc_id(1, _current_interactable.get_path())
 	elif Input.is_action_just_pressed("interact") and _current_interactable == null:
-		# Not aimed at anything — E eats/drinks a carried ration / water.
-		_try_consume_carried()
+		# Not aimed at anything — E either consumes the carried item (food /
+		# water) or drops it into the world (everything else with a prop
+		# scene). `_try_consume_carried` returns true if it handled the
+		# input; otherwise fall through to drop.
+		if not _try_consume_carried():
+			_try_drop_carried()
 
 
 ## Emit only when the prompt text actually changes, so HUD listeners aren't
@@ -826,9 +830,12 @@ func _make_cargo_visual(carry_id: String) -> Node3D:
 	return inst
 
 
-## Instance a physical item scene (water bottle / sausage) as the held prop.
-## The source scenes are RigidBody3D — freeze them and clear collision so they
-## sit still in the carry socket instead of falling / shoving the player.
+## Instance a physical item scene (water bottle / sausage / barrel / sack /
+## crate) as the held prop. The source scenes are RigidBody3D — freeze them
+## and clear collision so they sit still in the carry socket instead of
+## falling / shoving the player. Also neuters the world-item children
+## (InteractArea + Label3D) added for drops, so the carrier isn't
+## prompt-pickup-ing their own hands.
 func _make_item_visual(scene_path: String) -> Node3D:
 	if not ResourceLoader.exists(scene_path):
 		return null
@@ -842,6 +849,19 @@ func _make_item_visual(scene_path: String) -> Node3D:
 		rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
 		rb.collision_layer = 0
 		rb.collision_mask = 0
+	# Disable the world-item children if present — drops add these for
+	# pickup interaction + proximity tag, neither of which applies in-hand.
+	var area := inst.get_node_or_null("InteractArea")
+	if area is Area3D:
+		(area as Area3D).monitoring = false
+		(area as Area3D).monitorable = false
+		(area as Area3D).collision_layer = 0
+		(area as Area3D).collision_mask = 0
+	var label := inst.get_node_or_null("Label")
+	if label is Node3D:
+		(label as Node3D).visible = false
+	# The MultiplayerSynchronizer doesn't need to be touched — replicates
+	# nothing meaningful for a carry-socket child (position is parented).
 	return inst as Node3D
 
 
@@ -943,17 +963,56 @@ func _open_cargo_panel(hold: Node) -> void:
 	_cargo_panel.open_for_hold(hold)
 
 
-## E with empty aim eats a carried ration / drinks carried water.
-func _try_consume_carried() -> void:
+## E with empty aim eats a carried ration / drinks carried water. Returns
+## true iff the input was handled (so the caller can fall through to drop).
+func _try_consume_carried() -> bool:
 	if carried_item_type == "cargo_food" or carried_item_type == "item_sausage":
 		hunger = minf(100.0, hunger + food_restore)
 		energy = minf(100.0, energy + food_restore * 0.3)
 		set_carried_item.rpc("")
 		survival_changed.emit(hunger, thirst, energy, is_dead)
-	elif carried_item_type == "cargo_drinking_water" or carried_item_type == "item_water_bottle":
+		return true
+	if carried_item_type == "cargo_drinking_water" or carried_item_type == "item_water_bottle":
 		thirst = minf(100.0, thirst + water_restore)
 		set_carried_item.rpc("")
 		survival_changed.emit(hunger, thirst, energy, is_dead)
+		return true
+	return false
+
+
+## E with empty aim and a non-consumable in hand — drop into the world.
+## Spawns a fresh prop scene 1 m in front + 0.5 m above the player (physics
+## settles the drop). Parent is whatever node the player currently lives
+## under: on-ship → PlayerContainer (item rides the deck), off-ship →
+## WorldMap (item stays in the dunes).
+##
+## Routed through `DropManager.request_drop` so the host validates the
+## sender's carry slot, clears it, and broadcasts the spawn to every peer
+## with the same name. No early carry-slot clear here — wait for the
+## broadcast so a rejected drop doesn't lose the item locally.
+func _try_drop_carried() -> void:
+	if carried_item_type.is_empty():
+		return
+	# Only items with a registered prop_scene are droppable (raw tools like
+	# the coal shovel / gun clip aren't in Goods.ALL, so they fall through
+	# silently — pressing E is a no-op).
+	if Goods.prop_scene_for_carry(carried_item_type).is_empty():
+		return
+	var fwd := -global_transform.basis.z
+	fwd.y = 0.0
+	if fwd.length_squared() < 0.0001:
+		fwd = Vector3.FORWARD
+	fwd = fwd.normalized()
+	var drop_global := global_position + fwd * 1.2 + Vector3(0.0, 0.5, 0.0)
+	var parent := get_parent()
+	if parent == null:
+		return
+	var drop_local := drop_global
+	if parent is Node3D:
+		drop_local = (parent as Node3D).global_transform.affine_inverse() * drop_global
+	var yaw := randf_range(-PI, PI)
+	DropManager.request_drop.rpc_id(1, carried_item_type, parent.get_path(),
+			drop_local, yaw)
 
 
 ## Broadcast death so every peer freezes this body and the host can run the

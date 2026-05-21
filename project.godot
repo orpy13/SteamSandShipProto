@@ -26,6 +26,7 @@ AudioManager="*res://scripts/autoloads/audio_manager.gd"
 Regions="*res://scripts/autoloads/regions.gd"
 POIRegistry="*res://scripts/autoloads/poi_registry.gd"
 ChartState="*res://scripts/autoloads/chart_state.gd"
+DropManager="*res://scripts/autoloads/drop_manager.gd"
 
 [display]
 
@@ -39,7 +40,9 @@ enabled=PackedStringArray("res://addons/chunk_editor/plugin.cfg")
 [file_customization]
 
 folder_colors={
-"res://assets/": "orange"
+"res://addons/": "gray",
+"res://assets/": "orange",
+"res://scenes/": "red"
 }
 
 [input]

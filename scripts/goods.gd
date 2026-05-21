@@ -73,12 +73,16 @@ const ALL: Dictionary = {
 		"display_name": "Water Bottle",
 		"carry_id": "item_water_bottle",
 		"color": Color(0.35, 0.65, 0.85, 1),
+		"prop_scene": "res://scenes/items/water_bottle.tscn",
+		"carry_scale": 1.0,
 		"tradeable": false,
 	},
 	"sausage": {
 		"display_name": "Sausage",
 		"carry_id": "item_sausage",
 		"color": Color(0.7, 0.35, 0.25, 1),
+		"prop_scene": "res://scenes/items/sausage.tscn",
+		"carry_scale": 1.0,
 		"tradeable": false,
 	},
 }
@@ -166,6 +170,25 @@ static func get_carry_scale(good_id: String) -> float:
 	if not ALL.has(good_id):
 		return 0.45
 	return float(ALL[good_id].get("carry_scale", 0.45))
+
+
+## Reverse-lookup convenience: `prop_scene` for a `carry_id`. Used by the
+## DropManager + the player carry visual factory so callers don't have to
+## go through `good_from_carry_id` first.
+static func prop_scene_for_carry(carry_id: String) -> String:
+	var good_id := good_from_carry_id(carry_id)
+	if good_id.is_empty():
+		return ""
+	return get_prop_scene(good_id)
+
+
+## Same shape, for the carry-socket scale of an item identified by
+## `carry_id`.
+static func carry_scale_for_carry(carry_id: String) -> float:
+	var good_id := good_from_carry_id(carry_id)
+	if good_id.is_empty():
+		return 0.45
+	return get_carry_scale(good_id)
 
 
 ## True if the supplied carry_id matches any cargo good.
