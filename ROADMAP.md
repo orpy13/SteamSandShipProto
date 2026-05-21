@@ -300,9 +300,10 @@ independent but the chart is only interesting once T2.2 has POIs to find.
   ReflectionProbe, or enable SDFGI globally (Forward+ only, GPU cost).
   Park until there's a real ship model — the placeholder hull reads
   weirdly under any of these treatments.
-- **Drop carried items into the world**: E with no target spawns the held
-  item's RigidBody3D scene as a networked, re-pickupable world object
-  (server-spawned under WorldMap so it stays put in the dunes; item scenes
-  gain a pickup Area3D). Deferred from the items pass — it's a small
-  networked subsystem, not an inline tweak.
+- ~~**Drop carried items into the world**~~ — SHIPPED. `DropManager`
+  autoload owns the spawn path; each prop scene gained `InteractArea` +
+  `Label3D` + `MultiplayerSynchronizer` children so it's a self-contained
+  world item. `cargo_crate` wrapper deprecated; oasis market spawns
+  through the same `DropManager` path. Carry instances are the same
+  scene shrunk + frozen + neutered.
 - **Automated smoke test / CI** guard.

@@ -410,18 +410,38 @@ crates (`cargo_crate.gd`, picked up into the `cargo_<good>` carry slot) to
 the ship's **cargo hold deposit**, which increments `ship.cargo`. Selling
 reads `ship.cargo` directly — no need to physically haul crates back.
 
-**Crate visuals.** Each tradeable good in `Goods.ALL` carries a `prop_scene`
-path + `carry_scale`. The `CargoCrate` (Area3D wrapper) instantiates the
-prop under its `Visual` slot at `_ready`, freezing the RigidBody and
-zeroing collision so it sits as decoration alongside the interact volume.
-The same prop is used in the player's `CarrySocket`, scaled by
-`carry_scale`, so the silhouette you pick up matches the one you carry.
-Paired goods share a prop intentionally (water / drinking_water → barrel,
-food / repair_kit → crate) — a billboarded `Label3D` child of the crate
-fades in when the local player is within `label_visible_range` (default
-4.5 m) and shows the actual contents, so identification happens at pickup
-range, not at distance. Each peer evaluates the label independently
-against its own local player (no replication needed; purely cosmetic).
+**World items + drops.** Each `Goods` entry with a `prop_scene` is a
+self-contained world item: its `.tscn` is a `RigidBody3D` with the mesh
++ collision baked in, plus three shared children — an `InteractArea`
+(Area3D + `world_item.gd` script, sphere radius 0.9, layer 2) for pickup,
+a billboarded `Label3D` (hidden by default, fades in within
+`label_visible_range` ≈ 4.5 m of the local player), and a
+`MultiplayerSynchronizer` replicating `position` + `rotation`. The host
+simulates physics; clients spawn the same scene frozen kinematic and let
+the synchronizer drive transforms.
+
+Spawning paths converge on **`DropManager`** (autoload):
+- `oasis_market._spawn_crate` calls `DropManager.host_spawn_world_item`
+  (host-only direct entry) for market-bought crates.
+- `player_controller._try_drop_carried` calls `DropManager.request_drop`
+  (any-peer RPC) when E is pressed with nothing aimed at and a
+  droppable item in hand. Host validates the sender actually holds the
+  claimed `carry_id`, clears the carry slot, and broadcasts the spawn.
+
+Pickup is the same flow regardless of how the item arrived:
+player_controller's interact ray hits the `InteractArea`, E sends
+`_request_interact` to the host, `world_item.interact` grants the
+matching `carry_id` to the player and despawns the RigidBody.
+
+Carry instances are the same prop scenes shrunk to `carry_scale` and
+neutered (`RigidBody.freeze = true`, collision zeroed, `InteractArea`
+deactivated, `Label3D` hidden) so the carrier isn't pickup-prompting
+their own hands. Paired goods share a prop intentionally (water /
+drinking_water → barrel, food / repair_kit → crate) — distance silhouettes
+match, the floating `Label3D` disambiguates at pickup range. Only goods
+in `Goods.ALL` with a `prop_scene` are droppable — raw tools like the
+coal shovel and gun clip aren't registered, so pressing E with them in
+hand is a no-op (consumables go to consume instead).
 
 ---
 

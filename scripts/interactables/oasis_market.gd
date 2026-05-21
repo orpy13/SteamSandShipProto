@@ -12,8 +12,6 @@ extends Interactable
 ## carry back to the ship's cargo hold.
 ##
 
-const CARGO_CRATE_SCENE: PackedScene = preload("res://scenes/world/cargo_crate.tscn")
-
 @export var oasis_type: String = "mining"  # "mining" or "caravan"
 @export var crate_forward_offset: float = 2.5  # metres in front of the stall
 @export var crate_lateral_spacing: float = 0.7 # spacing when multiple crates spawn
@@ -88,23 +86,18 @@ func _revive_crew() -> void:
 
 ## Spawn a crate at a local-space position in front of the stall. Multiple
 ## crates from the same trade fan out laterally so they don't stack.
+## Routed through DropManager so market-bought crates are the same kind of
+## physics-active world item that dropped ones are — single spawn path.
 func _spawn_crate(good_id: String, index: int) -> void:
-	var spawn_local: Vector3 = self.position \
-			+ Vector3(0.0, 0.0, crate_forward_offset) \
-			+ Vector3(crate_lateral_spacing * float(index), 0.0, 0.0)
-	_spawn_crate_at.rpc(good_id, spawn_local)
-
-
-## All peers: instantiate a crate as a child of the parent oasis at the given
-## local position. good_id is set BEFORE add_child so the crate's _ready can
-## tint the mesh correctly.
-@rpc("authority", "call_local", "reliable")
-func _spawn_crate_at(good_id: String, local_pos: Vector3) -> void:
 	var oasis := get_parent()
 	if oasis == null:
 		return
-	var crate: Node = CARGO_CRATE_SCENE.instantiate()
-	crate.set("good_id", good_id)
-	oasis.add_child(crate)
-	if crate is Node3D:
-		(crate as Node3D).position = local_pos
+	var carry_id := Goods.get_carry_id(good_id)
+	if carry_id.is_empty():
+		return
+	# Lift a touch so the rigid body has room to settle on the oasis floor.
+	var spawn_local: Vector3 = self.position \
+			+ Vector3(0.0, 0.5, crate_forward_offset) \
+			+ Vector3(crate_lateral_spacing * float(index), 0.0, 0.0)
+	DropManager.host_spawn_world_item(carry_id, oasis.get_path(),
+			spawn_local, 0.0)

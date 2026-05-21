@@ -13,9 +13,11 @@ extends Object
 ## (the oasis's margin), so profit only comes from inter-oasis arbitrage.
 ##
 
-## Cargo good entries. `prop_scene` is the physical mesh used both in the
-## world (under the CargoCrate Area3D wrapper) and as the in-hand carry
-## visual; `carry_scale` shrinks the same prop to a sensible hand size.
+## Cargo good entries. `prop_scene` is the physical RigidBody3D scene used
+## both as a world item (spawned by DropManager / OasisMarket) and as the
+## in-hand carry visual; `carry_scale` shrinks the same prop to a sensible
+## hand size. World items have their physics live; carry instances are
+## frozen kinematic + collision-zero (see `player_controller._make_item_visual`).
 ## Pairs intentionally share a prop (water/drinking_water → barrel,
 ## food/repair_kit → crate) so silhouettes read as "vaguely similar" at
 ## distance and the Label3D disambiguates at pickup range.
@@ -155,9 +157,9 @@ static func get_color(good_id: String) -> Color:
 	return ALL[good_id].get("color", Color.WHITE)
 
 
-## Path to the physical prop scene used both in the world (under CargoCrate)
-## and as the in-hand carry visual. Empty string for goods without a prop
-## (e.g. consumable items that have their own item scenes).
+## Path to the physical prop scene used both as a world item (DropManager /
+## OasisMarket spawns) and as the in-hand carry visual. Empty string for
+## goods without a prop (e.g. raw tools like the coal shovel).
 static func get_prop_scene(good_id: String) -> String:
 	if not ALL.has(good_id):
 		return ""
