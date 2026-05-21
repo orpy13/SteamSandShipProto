@@ -307,13 +307,25 @@ from scene nodes (`BoilerFirebox`, `BridgeHouse`, `CargoHold`) with const
 fallbacks. Damage/repair broadcast via sender-validated RPCs; HUD shows a
 9-value readout; `damage_taken` drives per-peer screen shake.
 
-**Machine wear (Tier 1, T1.3).** `_apply_machine_wear` runs **server-side**
-(ahead of the authority gate, since the host owns the steam plant and the
-`_apply_damage` RPC only accepts sender 0/1). `mobility` wears with distance
-× terrain roughness, `power` with engine order, `control` with hard yaw at
-speed. Wear accumulates and flushes through `_apply_damage` in discrete
-`wear_apply_step` chunks (low RPC cadence). The existing performance
-penalties give it immediate teeth; tuning lives in the `*_wear_*` exports.
+**Machine wear (Tier 1, T1.3 + Balance pass).** `_apply_machine_wear` runs
+**server-side**. Wear is nonlinear in two directions:
+
+- **Engine-order scaling.** `power` wear ∝ `(order_frac)³`; `mobility` wear
+  ∝ `(0.3 + 0.7 × speed_frac²)` per metre; `control` ∝ `speed_frac²`.
+  Net effect: Slow / Half / Full barely wear, Flank (order 4 — the new
+  redline label) is where almost all the wear comes from.
+- **Damage spiral.** `_damage_amp(integrity) = 1 + 4 × (1 − integrity)²`
+  multiplies every wear bucket: 100 % → ×1.0, 80 % → ×1.16, 60 % → ×1.64,
+  40 % → ×2.44, 0 % → ×5.0. So an 80 % system reads "barely any change",
+  60 % is "actively self-damaging — fix it", and below 40 % decays fast.
+
+Performance penalties use the same squared-damage curve
+(`_damage_curve`): `factor = 1 − damage² × penalty_max`. `mobility` floors
+at 30 % top speed, `control` at 20 % turn rate. Boiler leak rate in
+`steam_plant._physics_process` follows the same squared curve up to 3×.
+Wear flushes through `_apply_damage` in `wear_apply_step` chunks
+(0.005 = 0.5 HUD points per pulse) so the reliable RPC stays cheap and
+feedback ticks smoothly even at the low base rates.
 
 **Repair (Tier 1, T1.4).** Repair is now *spatial*. `workshop.gd` is a
 **kit repository** (mirrors the coal bunker: take a `cargo_repair_kit`, or
@@ -822,6 +834,38 @@ Future item — speed × + jump × + no-clip cover most testing needs.
 
 ---
 
+## Balance pass (world scale + wear curve + drain rates)
+
+The first balance pass calibrated the loop against time-between-POIs and
+the in-game day length (2400 s = 40 min real). See `Regions.WORLD_HALF_EXTENT`
+(now 8000 m → 16 km × 16 km world), `POIRegistry.SETTLEMENTS` (curated
+triangle), and the wear / drain tunings in `ship_controller`,
+`steam_plant`, and `player_controller`.
+
+**POI triangle.** At half-ahead (engine order 2, 6 m/s):
+- Tin Lantern (caravan, SW) ↔ Rust Pump (mining, SE) = **5400 m ≈ 15 min**
+  — the short leg. Mining/caravan trade pair, quick profitable loop.
+- Either ↔ Dust Anvil (mining, N) = **~14400 m ≈ 40 min ≈ 1 in-game day**
+  — both medium / long legs are symmetric.
+- Salt Thread (caravan) sits off-triangle to the west at (−6000, 3000) —
+  convenient from Dust Anvil (~7 km), an extended haul from the south.
+
+**Expected single-leg costs (on-ship, half-ahead, normal daylight):**
+- Short leg (15 min): hunger −33, thirst −50, no meaningful wear.
+- Long leg (40 min): hunger −88, thirst −more-than-half (force a refill or
+  consume rations en route), minor wear (a handful of HUD points on
+  whichever system you stressed).
+- Anything at Flank: wear spirals fast — Flank is the redline, not the
+  cruise setting.
+
+**Survival drains.** Old defaults (0.45 hunger/s, 0.65 thirst/s) emptied
+the bars in ~2 min — fine for snap tests, terrible for 15-min legs. New
+defaults (`hunger_drain = 0.037`, `thirst_drain = 0.020`, energy similar)
+calibrate against the short-leg target. The heat / storm / exposed
+multipliers and the region thirst modifier all still apply on top.
+
+---
+
 ## Lobby flow
 
 1. App opens on `main.tscn` → `Lobby` visible, `HUD` hidden.
@@ -864,8 +908,11 @@ Context-sensitive remapping (player_controller):
 
 - **On foot**: WASD walks (camera-relative), Space jumps, E interacts.
 - **At the helm**: W/S step the engine telegraph (Full Astern −2 … Stop 0 …
-  Full Ahead +4), A/D steer, B brakes, E releases. Stepping off the trigger
-  auto-releases.
+  Slow Ahead +1 … Half Ahead +2 … Full Ahead +3 … **Flank** +4), A/D steer,
+  B brakes, E releases. Speeds are the same as before (1.0 / 0.75 / 0.5 /
+  0.25 fractions of `max_forward_speed`); only the **Flank** label is new
+  and the wear curve makes it punishing — see "Machine wear" in the
+  Combat & damage section.
 - **At the gun**: A/D traverse one step, W/S elevate one step (tap-tap, no
   auto-repeat), Left-click fires (server reload/ammo-gated), E leaves the
   gun. Mouse-look is frozen; the active camera is the gun's barrel camera.

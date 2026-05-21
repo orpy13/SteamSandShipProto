@@ -72,13 +72,16 @@ func _physics_process(delta: float) -> void:
 		water_level = max_water_level
 
 	# Damage scaling: power integrity 1.0 = leaks at baseline rates; 0.0 = up
-	# to leak_max× faster on both pressure and water consumption.
+	# to LEAK_MAX_MULT× faster on both pressure and water consumption.
+	# Balance pass — squared-damage curve so above ~80 % integrity the leak
+	# is barely noticeable, but it ramps fast as the boiler falls apart.
 	var ship := get_parent()
 	var power_int := 1.0
 	if ship != null and "system_integrity" in ship:
 		power_int = float(ship.system_integrity.get("power", 1.0))
 	const LEAK_MAX_MULT := 3.0
-	var leak_mult := 1.0 + (1.0 - power_int) * (LEAK_MAX_MULT - 1.0)
+	var damage := 1.0 - clampf(power_int, 0.0, 1.0)
+	var leak_mult := 1.0 + damage * damage * (LEAK_MAX_MULT - 1.0)
 
 	# ── Burn coal → heat ──────────────────────────────────────────────────
 	var burn := minf(coal_in_firebox, coal_burn_rate * delta)

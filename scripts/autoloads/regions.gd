@@ -39,8 +39,13 @@ const ID_JUNGLE := "jungle"
 # Finite world bounds (Tier 2, T2.1). The interior is the rectangle
 # [-WORLD_HALF_EXTENT, +WORLD_HALF_EXTENT] in both axes; the BORDER_BAND-wide
 # ring around the inside edge is the soft transition into border biomes.
-const WORLD_HALF_EXTENT := 2000.0   # ~50 chunks each way at chunk_size=80
-const BORDER_BAND := 240.0          # transition width (3 chunks-ish)
+## Finite-world half-extent in metres. Sized so a triangle of curated POIs
+## fits with legs that take ~15 min (short) and ~40 min (long) at half-ahead
+## (6 m/s) — see balance notes in instructions.md → "Balance pass".
+const WORLD_HALF_EXTENT := 8000.0
+## Border transition width — POIs anywhere inside (HALF_EXTENT − this) are
+## fully on the interior biome field.
+const BORDER_BAND := 500.0
 ## Water plane Y. Sits below the lowest interior dune trough (dunes ±3.5,
 ## badlands ±6.5 with no offset) so the sea is only ever visible inside the
 ## coast border, where height_offset drops terrain past this Y. Bumping this
@@ -199,10 +204,10 @@ class NoiseRegionSampler extends RegionSampler:
 		_noise = FastNoiseLite.new()
 		_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 		_noise.seed = seed_value
-		# Roughly one region cluster every ~600m at chunk_size=80. Tunable but
-		# this gives 7-8 chunks of one region between borders — enough room
-		# to read as a "place".
-		_noise.frequency = 0.0018
+		# Bands ~5 km wide across a ±8 km world — three or four distinct
+		# region zones across the playable interior. Each one feels like a
+		# "place" rather than a flickery patchwork.
+		_noise.frequency = 0.0002
 		_noise.fractal_octaves = 1
 
 	func sample(x: float, z: float) -> Dictionary:

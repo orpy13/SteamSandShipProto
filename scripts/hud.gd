@@ -146,14 +146,19 @@ func _update_boiler(ship: Node) -> void:
 
 
 ## Map an integer telegraph order to its display string.
+## Balance pass: order 3 is "Full Ahead" (the cruise setting), order 4 is
+## "Flank" (the redline — fast but expensive in wear). Speeds are the same
+## fractions of max as before; only the labels and the wear treatment
+## change. See ship_controller._apply_machine_wear for the cubic order
+## scaling that makes Flank chew the engine.
 func _engine_order_name(order: int) -> String:
 	match order:
 		-2: return "Full Astern"
 		-1: return "Half Astern"
 		1:  return "Slow Ahead"
 		2:  return "Half Ahead"
-		3:  return "Three Quarter"
-		4:  return "Full Ahead"
+		3:  return "Full Ahead"
+		4:  return "Flank"
 		_:  return "Stop"
 
 

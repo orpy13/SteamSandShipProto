@@ -39,32 +39,41 @@ const SVC_CONTRACTS := "contracts"  # quest board — Future
 #                  oasis prop will be re-seated on the terrain at spawn).
 #   oasis_subtype: "mining" or "caravan" — selects the market price column.
 #   services     : Array[String] of SVC_* flags.
+# Triangle layout (balance pass): three POIs at the corners of a triangle
+# sized so the short leg is ~15 min real time at half ahead (6 m/s) and
+# either long leg ~40 min (~1 in-game day). The fourth, Salt Thread, sits
+# off the triangle to the NW as an optional long-haul side hub.
+#   Tin Lantern  (caravan, SW)  ─── 5.4 km ───  Rust Pump  (mining, SE)
+#       │                                              │
+#       └─── 14.4 km ──── Dust Anvil (mining, N) ──── 14.4 km ───┘
 const SETTLEMENTS: Array = [
 	{
 		"id": "rust_pump",
 		"display_name": "Rust Pump",
-		"world_pos": Vector3(6 * 80.0 + 40.0, 0.0, 4 * 80.0 + 40.0),
+		"world_pos": Vector3(2700.0, 0.0, -7000.0),
 		"oasis_subtype": "mining",
 		"services": [SVC_MARKET, SVC_FUEL, SVC_REPAIR],
 	},
 	{
 		"id": "tin_lantern",
 		"display_name": "Tin Lantern",
-		"world_pos": Vector3(-5 * 80.0 + 40.0, 0.0, -3 * 80.0 + 40.0),
+		"world_pos": Vector3(-2700.0, 0.0, -7000.0),
 		"oasis_subtype": "caravan",
 		"services": [SVC_MARKET, SVC_PROVISIONS, SVC_WATER],
 	},
 	{
 		"id": "dust_anvil",
 		"display_name": "Dust Anvil",
-		"world_pos": Vector3(9 * 80.0 + 40.0, 0.0, -7 * 80.0 + 40.0),
+		"world_pos": Vector3(0.0, 0.0, 7000.0),
 		"oasis_subtype": "mining",
 		"services": [SVC_MARKET, SVC_FUEL],
 	},
 	{
+		# Off-triangle: a fourth, optional long-haul caravan. Convenient from
+		# Dust Anvil (~7 km), a haul from anywhere south.
 		"id": "salt_thread",
 		"display_name": "Salt Thread",
-		"world_pos": Vector3(-10 * 80.0 + 40.0, 0.0, 8 * 80.0 + 40.0),
+		"world_pos": Vector3(-6000.0, 0.0, 3000.0),
 		"oasis_subtype": "caravan",
 		"services": [SVC_MARKET, SVC_PROVISIONS, SVC_REPAIR],
 	},

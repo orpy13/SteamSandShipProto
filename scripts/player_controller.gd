@@ -38,11 +38,16 @@ signal survival_changed(hunger: float, thirst: float, energy: float, dead: bool)
 # scales with activity and the environment (midday sun + sandstorm + being off
 # the ship in the open desert). hunger or thirst hitting 0 = dead (frozen);
 # revival happens when the ship reaches a settlement (any market trade).
-@export var hunger_drain: float = 0.45          # per second, baseline
-@export var thirst_drain: float = 0.65          # per second, baseline
-@export var energy_drain_idle: float = 0.20     # per second at rest
-@export var energy_drain_active: float = 0.85   # per second moving / carrying
-@export var energy_regen_fed: float = 0.6       # per second resting & well-fed
+# Balance pass: drains calibrated so a 15-min real-time leg at half-ahead
+# on-ship in normal daylight loses ~33 hunger and ~50 thirst (with the
+# heat multiplier in play). Old values were set for fast-iteration tests
+# and would empty the bars in ~2 min — way too quick once legs are 15-40
+# min and an in-game day is 40 min real.
+@export var hunger_drain: float = 0.037         # per second, baseline (~33 over 15 min)
+@export var thirst_drain: float = 0.020         # per second, baseline (50 over 15 min at midday)
+@export var energy_drain_idle: float = 0.012    # per second at rest
+@export var energy_drain_active: float = 0.05   # per second moving / carrying
+@export var energy_regen_fed: float = 0.04      # per second resting & well-fed
 @export var heat_thirst_mult: float = 1.8       # ×thirst at full daylight
 @export var storm_thirst_mult: float = 1.6      # ×thirst at full sandstorm
 @export var exposed_drain_mult: float = 2.2     # ×hunger/thirst when off-ship in the dunes

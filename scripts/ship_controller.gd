@@ -135,20 +135,37 @@ var system_integrity: Dictionary = {
 @export var penetration_half_angle: float = deg_to_rad(25.0)
 @export var penetration_cone_length: float = 10.0   # m — how deep the cone reaches
 @export var penetration_base_max: float = 0.8       # max chance scalar at 0% wall HP
-@export var min_mobility_factor: float = 0.3        # mobility at 0% integrity still allows 30% speed
-@export var min_control_factor: float = 0.2         # control at 0% integrity is sluggish but not dead
+## Performance penalty span — `mobility_factor = 1 − damage² × this`. So at
+## 100% integrity the factor is 1.0 (full speed), at 0% it's (1 − this).
+## Squared-damage curve means barely any penalty above ~80% integrity and a
+## sharp ramp as integrity falls — see balance notes in instructions.md.
+@export var mobility_penalty_max: float = 0.7       # → 30 % floor at 0 % integrity
+@export var control_penalty_max: float = 0.8        # → 20 % floor at 0 % integrity
 
-# ── Machine wear (Tier 1, ROADMAP.md → T1.3) ─────────────────────────────────
-# Passive degradation from operation, applied SERVER-SIDE (the _apply_damage
-# RPC only accepts sender 0/1, and the host holds the steam-plant state). Wear
-# accumulates locally and flushes to the integrity model in discrete
-# `wear_apply_step` chunks so a reliable RPC isn't spammed every frame.
+# ── Machine wear (Tier 1, T1.3 + Balance pass) ───────────────────────────────
+# Passive degradation from operation, applied SERVER-SIDE. Wear is nonlinear
+# in two directions:
+#   1. Engine order (power wear): cubic so Slow / Half / Full barely wear and
+#      Flank (order 4) does almost all of it. Mobility wear scales with
+#      `(speed_frac)²` for the same reason.
+#   2. Existing damage (the "damage spiral"): wear and performance penalties
+#      both ramp with `damage²`, so an 80 % integrity system is basically
+#      healthy but a 60 % system is actively breaking itself faster — see
+#      `_damage_amp` below and `mobility_penalty_max` / `control_penalty_max`.
+# Wear accumulates locally and flushes via `_apply_damage` in discrete
+# `wear_apply_step` chunks so the reliable RPC stays cheap.
 @export var wear_enabled: bool = true
-@export var wear_apply_step: float = 0.02           # integrity flushed per RPC pulse
-@export var mobility_wear_per_m: float = 0.0006     # base wear per metre travelled
+@export var wear_apply_step: float = 0.005          # integrity flushed per RPC pulse (0.5 HUD points)
+## Per metre travelled. The actual wear is `this × (0.3 + 0.7 × speed_frac²) ×
+## (1 + mobility_wear_rough_mult × |slope|) × damage_amp`. So a cruising hull
+## (Half / Full) on flat ground generates ~half what Flank does per metre.
+@export var mobility_wear_per_m: float = 0.00002
 @export var mobility_wear_rough_mult: float = 4.0   # ×|slope| roughness multiplier
-@export var power_wear_per_s: float = 0.006         # at Full Ahead; scales with engine order
-@export var control_wear_per_s: float = 0.020       # scales with |yaw rate| × speed fraction
+## Boiler wear per second at Flank. Scales with `(order_frac)³`, so Half
+## (0.125×) and Full (0.42×) are gentle while Flank (1.0×) chews the engine.
+@export var power_wear_per_s: float = 0.0004
+## Steering load. Scales with `|yaw rate| × (speed_frac)²`.
+@export var control_wear_per_s: float = 0.0007
 
 # Fallback ship-local centroids for the INTERNAL systems only, used when the
 # corresponding scene node can't be found (e.g. someone renamed it). The live
@@ -227,12 +244,12 @@ func _physics_process(delta: float) -> void:
 				- Input.get_action_strength("move_left")
 		braking = Input.is_action_pressed("brake")
 
-	# Compute effective max speeds and turn rate from system integrity once per
-	# frame. Damaged mobility caps the ship's top speed; damaged control bleeds
-	# turning responsiveness. lerpf keeps each system from going fully to 0 —
-	# even a wrecked ship limps along rather than locking in place.
-	var mobility_factor := lerpf(min_mobility_factor, 1.0, float(system_integrity.get("mobility", 1.0)))
-	var control_factor := lerpf(min_control_factor, 1.0, float(system_integrity.get("control", 1.0)))
+	# Compute effective max speeds and turn rate from system integrity once
+	# per frame. Damage² curve (balance pass): above ~80 % integrity the
+	# penalty is barely there; below 60 % it bites hard. Even a wrecked ship
+	# floors at (1 − penalty_max), never zero, so it limps rather than locks.
+	var mobility_factor := _damage_curve(float(system_integrity.get("mobility", 1.0)), mobility_penalty_max)
+	var control_factor := _damage_curve(float(system_integrity.get("control", 1.0)), control_penalty_max)
 	var eff_max_forward := max_forward_speed * mobility_factor
 	var eff_max_reverse := max_reverse_speed * mobility_factor
 	var eff_turn_speed := turn_speed * mobility_factor * control_factor
@@ -504,31 +521,42 @@ func _slope_along_heading() -> float:
 	return atan2(front_height - back_height, wheel_base)
 
 
-## (T1.3) Server-only passive wear. Reads replicated speed/yaw/engine-order +
-## the host-simulated steam plant; accumulates per-system wear and flushes it
-## through the existing `_apply_damage` RPC in `wear_apply_step` chunks (so the
-## reliable RPC fires every several seconds, not every frame). A worn ship
-## handles worse (speed/turn/boiler-leak penalties already exist) and edges
-## toward stranding — reinforcing the maintenance loop.
+## (T1.3 + Balance pass) Server-only passive wear. Nonlinear in two ways:
+##   • Mobility wear scales with `(0.3 + 0.7 × speed_frac²)` — cruising at
+##     Half / Full barely wears wheels, Flank does almost all of it per
+##     metre.
+##   • Power wear scales with `(order_frac)³` — Half (0.125×) and Full
+##     (0.42×) are gentle, Flank (1.0×) chews the engine.
+##   • Each system's wear is then amplified by `_damage_amp(integrity)` so
+##     the more broken it gets, the faster it self-destroys.
+## Wear accumulates and flushes through `_apply_damage` in `wear_apply_step`
+## chunks (low RPC cadence). Sender id 0/1 is host-side; the RPC accepts
+## both since the host owns the steam plant.
 func _apply_machine_wear(delta: float) -> void:
 	if delta <= 0.0:
 		return
 	var speed := absf(current_speed)
-
-	# mobility — distance travelled, amplified by rough (sloped) ground.
-	var dist := speed * delta
-	var rough := 1.0 + mobility_wear_rough_mult * absf(sin(_slope_along_heading()))
-	_wear_accum["mobility"] += mobility_wear_per_m * dist * rough
-
-	# power — boiler working harder at higher engine orders.
+	var speed_frac := clampf(speed / maxf(max_forward_speed, 0.001), 0.0, 1.0)
 	var order_frac := clampf(absf(float(engine_order)) / 4.0, 0.0, 1.0)
-	_wear_accum["power"] += power_wear_per_s * order_frac * delta
+	var slope := absf(sin(_slope_along_heading()))
 
-	# control — steering load: hard yaw at speed stresses the gear.
+	# mobility — distance × speed-bucket × terrain roughness × damage spiral.
+	var dist := speed * delta
+	var rough := 1.0 + mobility_wear_rough_mult * slope
+	var speed_bucket := 0.3 + 0.7 * speed_frac * speed_frac
+	var mob_amp := _damage_amp(float(system_integrity.get("mobility", 1.0)))
+	_wear_accum["mobility"] += mobility_wear_per_m * dist * rough * speed_bucket * mob_amp
+
+	# power — boiler load. Cubic on order so Flank is dramatically worse.
+	var pow_amp := _damage_amp(float(system_integrity.get("power", 1.0)))
+	_wear_accum["power"] += power_wear_per_s * (order_frac * order_frac * order_frac) * pow_amp * delta
+
+	# control — steering load: hard yaw at speed stresses the gear. Cubic on
+	# speed_frac so low-speed manoeuvring is nearly free.
 	var yaw_rate := absf(wrapf(virtual_yaw - _wear_prev_yaw, -PI, PI)) / delta
 	_wear_prev_yaw = virtual_yaw
-	var speed_frac := clampf(speed / maxf(max_forward_speed, 0.001), 0.0, 1.0)
-	_wear_accum["control"] += control_wear_per_s * yaw_rate * speed_frac * delta
+	var ctl_amp := _damage_amp(float(system_integrity.get("control", 1.0)))
+	_wear_accum["control"] += control_wear_per_s * yaw_rate * speed_frac * speed_frac * ctl_amp * delta
 
 	# Flush whole steps so the RPC cadence stays low; skip dead systems.
 	for sys in _wear_accum.keys():
@@ -538,6 +566,27 @@ func _apply_machine_wear(delta: float) -> void:
 		while _wear_accum[sys] >= wear_apply_step:
 			_wear_accum[sys] -= wear_apply_step
 			_apply_damage.rpc(sys, wear_apply_step)
+
+
+## Damage-spiral amplifier. 1.0 at full integrity, 5.0 at zero. Tuned so:
+##   100 % → 1.00       (healthy)
+##    80 % → 1.16       (barely any change — repair-soon signal, not panic)
+##    60 % → 1.64       (actively self-damaging, time to fix)
+##    40 % → 2.44
+##    20 % → 3.56
+##     0 % → 5.00       (catastrophic)
+static func _damage_amp(integrity: float) -> float:
+	var d := 1.0 - clampf(integrity, 0.0, 1.0)
+	return 1.0 + 4.0 * d * d
+
+
+## Performance-penalty curve. Mirrors `_damage_amp` shape — the more broken,
+## the bigger the penalty, but it stays cheap above ~80 % integrity. Returns
+## a *factor* in [(1 − penalty_max), 1.0] for multiplying max speed / turn
+## rate. Used for the mobility and control buckets.
+static func _damage_curve(integrity: float, penalty_max: float) -> float:
+	var d := 1.0 - clampf(integrity, 0.0, 1.0)
+	return 1.0 - d * d * penalty_max
 
 
 ## Translate a ship-local contact offset into the (virtual) world position used
