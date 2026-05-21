@@ -806,22 +806,24 @@ func _make_repair_kit_visual() -> MeshInstance3D:
 	return n
 
 
-## A cargo crate held in hand. Tint comes from the goods registry so all
-## three goods (coal/water/spice) share one visual factory.
-func _make_cargo_visual(carry_id: String) -> MeshInstance3D:
+## A cargo crate held in hand. The prop scene is shared with the
+## world-spawned `cargo_crate` (sack / barrel / crate) so the silhouette
+## matches what you just picked up. Scale is per-good (see
+## `Goods.get_carry_scale`) since props were modelled at world size.
+func _make_cargo_visual(carry_id: String) -> Node3D:
 	var good_id := Goods.good_from_carry_id(carry_id)
 	if good_id.is_empty():
 		return null
-	var n := MeshInstance3D.new()
-	n.name = "CarriedCargo_" + good_id
-	var mesh := BoxMesh.new()
-	mesh.size = Vector3(0.5, 0.4, 0.4)
-	n.mesh = mesh
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Goods.get_color(good_id)
-	mat.roughness = 0.85
-	n.material_override = mat
-	return n
+	var scene_path := Goods.get_prop_scene(good_id)
+	if scene_path.is_empty():
+		return null
+	var inst := _make_item_visual(scene_path)
+	if inst == null:
+		return null
+	inst.name = "CarriedCargo_" + good_id
+	var s := Goods.get_carry_scale(good_id)
+	inst.scale = Vector3.ONE * s
+	return inst
 
 
 ## Instance a physical item scene (water bottle / sausage) as the held prop.

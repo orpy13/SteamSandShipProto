@@ -13,21 +13,33 @@ extends Object
 ## (the oasis's margin), so profit only comes from inter-oasis arbitrage.
 ##
 
+## Cargo good entries. `prop_scene` is the physical mesh used both in the
+## world (under the CargoCrate Area3D wrapper) and as the in-hand carry
+## visual; `carry_scale` shrinks the same prop to a sensible hand size.
+## Pairs intentionally share a prop (water/drinking_water → barrel,
+## food/repair_kit → crate) so silhouettes read as "vaguely similar" at
+## distance and the Label3D disambiguates at pickup range.
 const ALL: Dictionary = {
 	"coal": {
 		"display_name": "Coal",
 		"carry_id": "cargo_coal",
 		"color": Color(0.08, 0.08, 0.08, 1),
+		"prop_scene": "res://scenes/items/sack_1.tscn",
+		"carry_scale": 0.45,
 	},
 	"water": {
 		"display_name": "Water",
 		"carry_id": "cargo_water",
 		"color": Color(0.3, 0.5, 0.7, 1),
+		"prop_scene": "res://scenes/items/barrel.tscn",
+		"carry_scale": 0.45,
 	},
 	"spice": {
 		"display_name": "Spice",
 		"carry_id": "cargo_spice",
 		"color": Color(0.85, 0.45, 0.15, 1),
+		"prop_scene": "res://scenes/items/sack_prop.tscn",
+		"carry_scale": 0.45,
 	},
 	# ── Tier 1 provisions / supplies (see ROADMAP.md → T1.1) ────────────────
 	# Just goods like any other: bought/sold at oasis markets, held in the
@@ -37,16 +49,22 @@ const ALL: Dictionary = {
 		"display_name": "Repair Kit",
 		"carry_id": "cargo_repair_kit",
 		"color": Color(0.45, 0.30, 0.15, 1),
+		"prop_scene": "res://scenes/items/crate.tscn",
+		"carry_scale": 0.30,
 	},
 	"food": {
 		"display_name": "Rations",
 		"carry_id": "cargo_food",
 		"color": Color(0.55, 0.45, 0.25, 1),
+		"prop_scene": "res://scenes/items/crate.tscn",
+		"carry_scale": 0.30,
 	},
 	"drinking_water": {
 		"display_name": "Drinking Water",
 		"carry_id": "cargo_drinking_water",
 		"color": Color(0.35, 0.65, 0.80, 1),
+		"prop_scene": "res://scenes/items/barrel.tscn",
+		"carry_scale": 0.45,
 	},
 	# ── Physical consumable items (scenes/items/*). Not market-traded for now
 	# (`tradeable=false` keeps them out of the trade panel); they live in the
@@ -131,6 +149,23 @@ static func get_color(good_id: String) -> Color:
 	if not ALL.has(good_id):
 		return Color.WHITE
 	return ALL[good_id].get("color", Color.WHITE)
+
+
+## Path to the physical prop scene used both in the world (under CargoCrate)
+## and as the in-hand carry visual. Empty string for goods without a prop
+## (e.g. consumable items that have their own item scenes).
+static func get_prop_scene(good_id: String) -> String:
+	if not ALL.has(good_id):
+		return ""
+	return String(ALL[good_id].get("prop_scene", ""))
+
+
+## Scale applied when the prop is instanced into the player's carry socket.
+## Defaults to 0.45 — prop_scenes are sized for the world, so shrink for hand.
+static func get_carry_scale(good_id: String) -> float:
+	if not ALL.has(good_id):
+		return 0.45
+	return float(ALL[good_id].get("carry_scale", 0.45))
 
 
 ## True if the supplied carry_id matches any cargo good.

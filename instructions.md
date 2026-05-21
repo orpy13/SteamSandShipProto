@@ -380,6 +380,19 @@ crates (`cargo_crate.gd`, picked up into the `cargo_<good>` carry slot) to
 the ship's **cargo hold deposit**, which increments `ship.cargo`. Selling
 reads `ship.cargo` directly — no need to physically haul crates back.
 
+**Crate visuals.** Each tradeable good in `Goods.ALL` carries a `prop_scene`
+path + `carry_scale`. The `CargoCrate` (Area3D wrapper) instantiates the
+prop under its `Visual` slot at `_ready`, freezing the RigidBody and
+zeroing collision so it sits as decoration alongside the interact volume.
+The same prop is used in the player's `CarrySocket`, scaled by
+`carry_scale`, so the silhouette you pick up matches the one you carry.
+Paired goods share a prop intentionally (water / drinking_water → barrel,
+food / repair_kit → crate) — a billboarded `Label3D` child of the crate
+fades in when the local player is within `label_visible_range` (default
+4.5 m) and shows the actual contents, so identification happens at pickup
+range, not at distance. Each peer evaluates the label independently
+against its own local player (no replication needed; purely cosmetic).
+
 ---
 
 ## Day/night & weather
