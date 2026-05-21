@@ -212,22 +212,45 @@ are re-slotted to build on it.
   wrecks / ruins). Stub left in `POIRegistry` for the future generator —
   pure function of `Regions.world_seed`.
 
-**T2.3 — Navigation overhaul (earn position)**
-- HUD: replace live `X/Z` with HDG + speed + a dead-reckoning estimate
-  (integrated from heading/speed) with growing error since last fix.
-- **Chart table** interactable: shared, host-authoritative crew state —
-  discovered POIs + telescope sightings + the estimate + player-placed
-  markers/route lines. Reaching a landmark/settlement = a position fix
-  (error resets).
-- **Telescope** interactable: manned (deck-gun pattern — lock player, swap
-  to a zoomed traversing camera). Spotting reveals POIs/landmarks/storms
-  as bearing markers / chart pins; range cut by storm + night
-  (weather/day-night synergy).
-- Sun + pole star stay the coarse compass (already shipped).
+**T2.3 — Navigation overhaul (earn position) — Slices A + B SHIPPED**
+
+Slice A (foundation, shipped):
+- `ChartState` autoload (host-authoritative; ship.cargo-style replication;
+  full snapshot to joining peers). Owns `discovered_pois`, `markers`,
+  `bearing_lines`, `last_fix`, `dr_enabled`.
+- `ChartMap` pre-renders a region tint map from `Regions.region_at`.
+- `ChartPanel` (code-built, full-screen overlay): region map background,
+  discovered POI pins, player markers (16 cap), ship arrow / DR estimate /
+  uncertainty circle / static last-fix marker.
+- `ChartTable` interactable (player places in `ship.tscn`).
+
+Slice B (telescope + triangulation + DR, shipped):
+- `Telescope` interactable (manned, deck-gun pattern;
+  `NetworkManager.current_observer` parallels `current_gunner`).
+- Mouse-motion + held-key aim, batched per physics tick into one
+  `request_aim_delta` unreliable RPC. Left-click = spot; result RPC'd back
+  only to the spotter as POI name + bearing + range. No artificial range
+  gate — storm/night degrade visibility *visually* through fog/dim light.
+- `TelescopeOverlay` (code-built crosshair + live BRG readout + sighting).
+- Chart bearing entry (POI dropdown + degree spinbox) + line rendering
+  (per-spotter peer-id tint) + **Take fix (2+)** → 2D intersection of the
+  two newest lines, stamps `last_fix`.
+- Deterministic dead-reckoning drift (sin/cos of elapsed) + uncertainty
+  circle. Hard mode (`dr_enabled = false`, host toggle) hides the live
+  estimate entirely; only the static last-fix marker remains.
+
+Slice C — DEFERRED (Future-ish):
+- Replace HUD `X/Z` with HDG + speed (already shown) + a DR-blurred
+  position. The user kept `X/Z` for now to cross-check Slice B math.
+- Telescope storm/night range UI cues (current range readout; subtle fade
+  in heavy weather). The data model supports it; not surfaced yet.
+- Multi-observer handoff (more than one telescope; per-spotter colour
+  legend on the chart).
 
 **T2.4 — Spec sync + re-slot Future**
-- Update `instructions.md` as pieces land (ongoing norm); adjust the
-  success-criteria/tests that referenced the live `X/Z` readout.
+- `instructions.md` updated as each piece landed (ongoing norm).
+- Success-criteria tests still reference live `X/Z` — to be rewritten
+  once Slice C lands and HUD changes.
 
 ### Dependencies
 T2.0 first (regions feed T2.1 borders and T2.2 POIs). T2.3 is largely
