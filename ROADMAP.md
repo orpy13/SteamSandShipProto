@@ -290,6 +290,16 @@ independent but the chart is only interesting once T2.2 has POIs to find.
   acceleration channel).
 - **Audio pass** and **visual model overhaul** (deferred force-multipliers;
   best after the loop exists).
+- **Ship-interior lighting**: shaded spaces inside the hull currently
+  brighten over a second or two as auto-exposure (`DayNightCycle`
+  `CameraAttributesPractical.auto_exposure_enabled`) compensates for the
+  dim scene — interiors should *feel* dark. Root cause is no GI to
+  carry directional ambient and no occlusion to darken corners. Cheap
+  fixes: cap `auto_exposure_max_sensitivity` (~300, default 800) or just
+  toggle `use_auto_exposure = false`. Proper fix: SSAO + a ship-local
+  ReflectionProbe, or enable SDFGI globally (Forward+ only, GPU cost).
+  Park until there's a real ship model — the placeholder hull reads
+  weirdly under any of these treatments.
 - **Drop carried items into the world**: E with no target spawns the held
   item's RigidBody3D scene as a networked, re-pickupable world object
   (server-spawned under WorldMap so it stays put in the dunes; item scenes
