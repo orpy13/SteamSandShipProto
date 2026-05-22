@@ -44,16 +44,6 @@ shadow_mesh = SubResource("ArrayMesh_yud7g")
 [sub_resource type="BoxShape3D" id="BoxShape3D_bqecg"]
 size = Vector3(0.8757899, 0.3664817, 1.3701867)
 
-[node name="Sack1" type="RigidBody3D" unique_id=718606438]
-
-[node name="Sack1" type="MeshInstance3D" parent="." unique_id=1290179537]
-transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0)
-mesh = SubResource("ArrayMesh_uypec")
-skeleton = NodePath("")
-
-[node name="CollisionShape3DSack1" type="CollisionShape3D" parent="." unique_id=931665244]
-transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0.36845514, 0)
-shape = SubResource("BoxShape3D_bqecg")
 
 [ext_resource type="Script" path="res://scripts/world_item.gd" id="WorldItemScript_wi"]
 
@@ -68,6 +58,16 @@ properties/1/path = NodePath(".:rotation")
 properties/1/spawn = true
 properties/1/replication_mode = 1
 
+[node name="Sack1" type="RigidBody3D" unique_id=718606438]
+
+[node name="Sack1" type="MeshInstance3D" parent="." unique_id=1290179537]
+transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0)
+mesh = SubResource("ArrayMesh_uypec")
+skeleton = NodePath("")
+
+[node name="CollisionShape3DSack1" type="CollisionShape3D" parent="." unique_id=931665244]
+transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0.36845514, 0)
+shape = SubResource("BoxShape3D_bqecg")
 [node name="InteractArea" type="Area3D" parent="."]
 collision_layer = 2
 collision_mask = 0

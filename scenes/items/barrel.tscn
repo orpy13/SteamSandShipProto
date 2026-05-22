@@ -45,16 +45,6 @@ shadow_mesh = SubResource("ArrayMesh_wv1em")
 height = 1.0200001
 radius = 0.43473205
 
-[node name="Barrel" type="RigidBody3D" unique_id=601948090]
-
-[node name="BarrelMesh" type="MeshInstance3D" parent="." unique_id=947001801]
-transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0)
-mesh = SubResource("ArrayMesh_b03o2")
-skeleton = NodePath("")
-
-[node name="CollisionShape3DBarrel" type="CollisionShape3D" parent="." unique_id=661046928]
-transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, 0, 1.0200002, 0)
-shape = SubResource("CylinderShape3D_tkpan")
 
 [ext_resource type="Script" path="res://scripts/world_item.gd" id="WorldItemScript_wi"]
 
@@ -69,6 +59,16 @@ properties/1/path = NodePath(".:rotation")
 properties/1/spawn = true
 properties/1/replication_mode = 1
 
+[node name="Barrel" type="RigidBody3D" unique_id=601948090]
+
+[node name="BarrelMesh" type="MeshInstance3D" parent="." unique_id=947001801]
+transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0)
+mesh = SubResource("ArrayMesh_b03o2")
+skeleton = NodePath("")
+
+[node name="CollisionShape3DBarrel" type="CollisionShape3D" parent="." unique_id=661046928]
+transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, 0, 1.0200002, 0)
+shape = SubResource("CylinderShape3D_tkpan")
 [node name="InteractArea" type="Area3D" parent="."]
 collision_layer = 2
 collision_mask = 0

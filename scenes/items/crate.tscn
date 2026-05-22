@@ -42,16 +42,6 @@ shadow_mesh = SubResource("ArrayMesh_kn35g")
 [sub_resource type="BoxShape3D" id="BoxShape3D_bracq"]
 size = Vector3(1.7236328, 1.7077148, 1.7002319)
 
-[node name="Crate" type="RigidBody3D" unique_id=1276110213]
-
-[node name="CrateMesh" type="MeshInstance3D" parent="." unique_id=2082208560]
-transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0)
-mesh = SubResource("ArrayMesh_mpdh2")
-skeleton = NodePath("")
-
-[node name="CollisionShape3DCrate" type="CollisionShape3D" parent="." unique_id=985575817]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8515285, 0.0042541027)
-shape = SubResource("BoxShape3D_bracq")
 
 [ext_resource type="Script" path="res://scripts/world_item.gd" id="WorldItemScript_wi"]
 
@@ -66,6 +56,16 @@ properties/1/path = NodePath(".:rotation")
 properties/1/spawn = true
 properties/1/replication_mode = 1
 
+[node name="Crate" type="RigidBody3D" unique_id=1276110213]
+
+[node name="CrateMesh" type="MeshInstance3D" parent="." unique_id=2082208560]
+transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0)
+mesh = SubResource("ArrayMesh_mpdh2")
+skeleton = NodePath("")
+
+[node name="CollisionShape3DCrate" type="CollisionShape3D" parent="." unique_id=985575817]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8515285, 0.0042541027)
+shape = SubResource("BoxShape3D_bracq")
 [node name="InteractArea" type="Area3D" parent="."]
 collision_layer = 2
 collision_mask = 0
