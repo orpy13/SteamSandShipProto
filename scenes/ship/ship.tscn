@@ -13,6 +13,8 @@
 [ext_resource type="PackedScene" path="res://scenes/interactables/water_tank.tscn" id="11"]
 [ext_resource type="PackedScene" path="res://scenes/interactables/repair_point.tscn" id="12"]
 [ext_resource type="PackedScene" uid="uid://da7tj2ebp7p22" path="res://scenes/interactables/bed_single.tscn" id="13_8ks32"]
+[ext_resource type="PackedScene" path="res://scenes/interactables/telescope.tscn" id="14_roibb"]
+[ext_resource type="PackedScene" path="res://scenes/interactables/chart_table.tscn" id="15_wkb1m"]
 
 [sub_resource type="BoxShape3D" id="HullShape"]
 size = Vector3(20, 0.8798828, 60)
@@ -344,3 +346,9 @@ shape = SubResource("ConvexPolygonShape3D_gkhk1")
 
 [node name="bedSingle" parent="." unique_id=228234122 instance=ExtResource("13_8ks32")]
 transform = Transform3D(2.575, 0, 0, 0, 2.575, 0, 0, 0, 2.575, -5.729573, 0.8798828, 5.248212)
+
+[node name="Telescope" parent="." unique_id=805322403 instance=ExtResource("14_roibb")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.05987501, 10, -23.473726)
+
+[node name="ChartTable" parent="." unique_id=612724454 instance=ExtResource("15_wkb1m")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.030620575, 4.0999994, -14.589189)

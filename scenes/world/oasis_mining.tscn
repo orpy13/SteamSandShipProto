@@ -1,24 +1,23 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene format=3 uid="uid://cqxd2s5av3a38"]
 
-[ext_resource type="Script" path="res://scripts/oasis.gd" id="1"]
+[ext_resource type="Script" uid="uid://d38is088euwy3" path="res://scripts/oasis.gd" id="1"]
 [ext_resource type="PackedScene" path="res://scenes/interactables/oasis_market.tscn" id="2"]
-[ext_resource type="PackedScene" path="res://scenes/world/buildingWestern/building_western.tscn" id="3"]
-[ext_resource type="PackedScene" path="res://scenes/world/buildingWesternTower/building_western_tower.tscn" id="4"]
+[ext_resource type="PackedScene" uid="uid://ditq0qbeq54c3" path="res://scenes/world/buildingWestern/building_western.tscn" id="3"]
+[ext_resource type="PackedScene" uid="uid://dmtravtvmlm7g" path="res://scenes/world/buildingWesternTower/building_western_tower.tscn" id="4"]
 
-[node name="Oasis" type="Node3D"]
+[node name="Oasis" type="Node3D" unique_id=284098314]
 script = ExtResource("1")
-oasis_type = "mining"
 
-[node name="BuildingFL" parent="." instance=ExtResource("3")]
-transform = Transform3D(0.155882, 0, 0.09, 0, 0.18, 0, -0.09, 0, 0.155882, -9.5, 1.4, -8.0)
+[node name="BuildingFL" parent="." unique_id=1726846795 instance=ExtResource("3")]
+transform = Transform3D(0.4330109, 0, 0.2500031, 0, 0.5, 0, -0.2500031, 0, 0.4330109, -9.5, 0, -30.570503)
 
-[node name="BuildingFR" parent="." instance=ExtResource("3")]
-transform = Transform3D(0.155882, 0, -0.09, 0, 0.18, 0, 0.09, 0, 0.155882, 9.5, 1.4, -8.0)
+[node name="BuildingFR" parent="." unique_id=1740214625 instance=ExtResource("3")]
+transform = Transform3D(0.69281745, 0, -0.40000495, 0, 0.8, 0, 0.40000495, 0, 0.69281745, 31.142, 0, -8)
 
-[node name="TowerBack" parent="." instance=ExtResource("4")]
-transform = Transform3D(0.15, 0, 0, 0, 0.15, 0, 0, 0, 0.15, 0.0, 1.0, -14.0)
+[node name="TowerBack" parent="." unique_id=223534115 instance=ExtResource("4")]
+transform = Transform3D(0.6, 0, 0, 0, 0.6, 0, 0, 0, 0.6, 0, 0, 32.645)
 
-[node name="BuildingSide" parent="." instance=ExtResource("3")]
-transform = Transform3D(-0.09, 0, 0.155882, 0, 0.18, 0, -0.155882, 0, -0.09, -13.0, 1.2, 4.0)
+[node name="BuildingSide" parent="." unique_id=813106327 instance=ExtResource("3")]
+transform = Transform3D(-0.35000437, 0, 0.60621524, 0, 0.7, 0, -0.60621524, 0, -0.35000437, -35.10649, 0, 4)
 
-[node name="Market" parent="." instance=ExtResource("2")]
+[node name="Market" parent="." unique_id=1027898788 instance=ExtResource("2")]
