@@ -851,12 +851,17 @@ func _make_item_visual(scene_path: String) -> Node3D:
 		rb.collision_mask = 0
 	# Disable the world-item children if present — drops add these for
 	# pickup interaction + proximity tag, neither of which applies in-hand.
+	# world_item.gd._process re-flips the label every frame based on
+	# distance to the local player (which is ~0 when carried), so stopping
+	# the InteractArea's process is what actually keeps the label hidden.
 	var area := inst.get_node_or_null("InteractArea")
 	if area is Area3D:
-		(area as Area3D).monitoring = false
-		(area as Area3D).monitorable = false
-		(area as Area3D).collision_layer = 0
-		(area as Area3D).collision_mask = 0
+		var a := area as Area3D
+		a.monitoring = false
+		a.monitorable = false
+		a.collision_layer = 0
+		a.collision_mask = 0
+		a.process_mode = Node.PROCESS_MODE_DISABLED
 	var label := inst.get_node_or_null("Label")
 	if label is Node3D:
 		(label as Node3D).visible = false
