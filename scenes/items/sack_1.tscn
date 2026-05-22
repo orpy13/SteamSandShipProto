@@ -1,6 +1,7 @@
 [gd_scene format=4 uid="uid://btrpv34osavse"]
 
 [ext_resource type="Texture2D" uid="uid://b4hghrtnhycut" path="res://assets/skins/uploads_files_6541663_props_barrel_01_TextureAtlass.png" id="1_bqecg"]
+[ext_resource type="Script" path="res://scripts/world_item.gd" id="WorldItemScript_wi"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_jtbxl"]
 resource_name = "Mat_MedievalVillageProps"
@@ -45,7 +46,6 @@ shadow_mesh = SubResource("ArrayMesh_yud7g")
 size = Vector3(0.8757899, 0.3664817, 1.3701867)
 
 
-[ext_resource type="Script" path="res://scripts/world_item.gd" id="WorldItemScript_wi"]
 
 [sub_resource type="SphereShape3D" id="InteractAreaShape_wi"]
 radius = 0.9

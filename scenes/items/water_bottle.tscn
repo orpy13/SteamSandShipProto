@@ -1,6 +1,7 @@
 [gd_scene format=4 uid="uid://c4rn7tlxrywqv"]
 
 [ext_resource type="Texture2D" uid="uid://b8x36m1tvwnvp" path="res://assets/models/colormap.png" id="1_5y7rl"]
+[ext_resource type="Script" path="res://scripts/world_item.gd" id="WorldItemScript_wi"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_u3lvs"]
 resource_name = "colormap"
@@ -49,7 +50,6 @@ height = 0.633667
 radius = 0.099121094
 
 
-[ext_resource type="Script" path="res://scripts/world_item.gd" id="WorldItemScript_wi"]
 
 [sub_resource type="SphereShape3D" id="InteractAreaShape_wi"]
 radius = 0.9
