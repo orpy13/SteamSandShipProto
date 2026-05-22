@@ -984,6 +984,8 @@ multipliers and the region thirst modifier all still apply on top.
 | `jump`          | Space        |
 | `brake`         | B            |
 | `interact`      | E            |
+| `use_item`      | F — eat/drink the carried consumable (food / water) |
+| `drop_item`     | Q — drop the carried item into the world (anything with a `prop_scene`) |
 | `fire`          | Left Mouse   |
 | `debug_toggle`  | F1 — host-only god-mode overlay (see Debug / god mode) |
 
@@ -998,7 +1000,10 @@ Context-sensitive remapping (additions for T2.3):
 
 Context-sensitive remapping (player_controller):
 
-- **On foot**: WASD walks (camera-relative), Space jumps, E interacts.
+- **On foot**: WASD walks (camera-relative), Space jumps, E interacts with
+  whatever the camera ray is on. **F** consumes a carried food / water
+  item; **Q** drops any carried item with a `prop_scene` into the world.
+  E with nothing targeted is a no-op (no accidental drops / consumes).
 - **At the helm**: W/S step the engine telegraph (Full Astern −2 … Stop 0 …
   Slow Ahead +1 … Half Ahead +2 … Full Ahead +3 … **Flank** +4), A/D steer,
   B brakes, E releases. Speeds are the same as before (1.0 / 0.75 / 0.5 /

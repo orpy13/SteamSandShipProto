@@ -587,13 +587,15 @@ func _poll_interact() -> void:
 				chart.open()
 			return
 		_request_interact.rpc_id(1, _current_interactable.get_path())
-	elif Input.is_action_just_pressed("interact") and _current_interactable == null:
-		# Not aimed at anything — E either consumes the carried item (food /
-		# water) or drops it into the world (everything else with a prop
-		# scene). `_try_consume_carried` returns true if it handled the
-		# input; otherwise fall through to drop.
-		if not _try_consume_carried():
-			_try_drop_carried()
+	# F = use carried (consume food/water). Q = drop carried (anything with
+	# a prop scene). Both are separate from interact (E) so the player can
+	# unambiguously eat, drop, or interact without context-dependent E
+	# guessing which one they meant. Both are no-ops when hands are empty
+	# or the item type doesn't match (consumable for F; droppable for Q).
+	if Input.is_action_just_pressed("use_item"):
+		_try_consume_carried()
+	if Input.is_action_just_pressed("drop_item"):
+		_try_drop_carried()
 
 
 ## Emit only when the prompt text actually changes, so HUD listeners aren't
